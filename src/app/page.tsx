@@ -105,9 +105,9 @@ export default function Home() {
       .catch(() => {});
   }, []);
 
-  useEffect(() => {
-    refreshScoreboard();
-  }, [refreshScoreboard]);
+  // The scoreboard is intentionally NOT fetched on mount — a fresh page
+  // load shows an empty board; it fills only when a race completes
+  // (run_done). History remains queryable via /api/scoreboard.
 
   const readStream = useCallback(
     async <T,>(
