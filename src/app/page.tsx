@@ -1,14 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  COMPARE_FIELDS,
-  agreementRatio,
-  costWinner,
-  fieldsAgree,
-  latencyWinner,
-  parseErrorWinner,
-} from "@/lib/compare";
+import { COMPARE_FIELDS, fieldsAgree } from "@/lib/compare";
 import type { RaceEvent, StepMetrics } from "@/lib/events";
 import { emptyFlowState, flowProgress, type FlowState } from "@/lib/race-state";
 import type { TicketAnalysis } from "@/lib/schema";
@@ -17,7 +10,7 @@ import type { SessionFull } from "@/lib/sessions";
 import { ComparisonStrip } from "@/components/ComparisonStrip";
 import { FlowColumn } from "@/components/FlowColumn";
 import { InputCard } from "@/components/InputCard";
-import { Scoreboard, emptyScoreboard, tallyWinner, type ScoreboardData } from "@/components/Scoreboard";
+import { Scoreboard, emptyScoreboard, type ScoreboardData } from "@/components/Scoreboard";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SettingsModal } from "@/components/SettingsModal";
 import { SessionSidebar } from "@/components/SessionSidebar";
@@ -100,11 +93,13 @@ export default function Home() {
   const [historyVersion, setHistoryVersion] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
+  // Scoreboard is fully server-derived from persisted sessions — the client
+  // never tallies locally, so counts can never drift after a reload.
   const refreshScoreboard = useCallback(() => {
-    fetch("/api/sessions")
+    fetch("/api/scoreboard")
       .then((res) => res.json())
-      .then((data: { sessions: { id: string; type: string; createdAt: string }[] }) => {
-        setScoreboard((prev) => ({ ...prev, runs: data.sessions.length }));
+      .then((data: ScoreboardData) => {
+        setScoreboard(data);
         setHistoryVersion((v) => v + 1);
       })
       .catch(() => {});
@@ -217,18 +212,6 @@ export default function Home() {
       }
       case "run_done": {
         setSingleRunning(false);
-        const { A, B } = completedRef.current;
-        if (A && B) {
-          const ratio = agreementRatio(A.analysis, B.analysis);
-          setScoreboard((prev) => ({
-            runs: prev.runs + 1,
-            latency: tallyWinner(prev.latency, latencyWinner(A.totalMs, B.totalMs)),
-            cost: tallyWinner(prev.cost, costWinner(A.totals.costUsd, B.totals.costUsd)),
-            parseErrors: tallyWinner(prev.parseErrors, parseErrorWinner(A.totals.parseErrors, B.totals.parseErrors)),
-            agreementSum: prev.agreementSum + ratio,
-            agreementCount: prev.agreementCount + 1,
-          }));
-        }
         void refreshScoreboard();
         break;
       }
