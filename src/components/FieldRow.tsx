@@ -52,15 +52,15 @@ export function FieldRow({ label, value, confidence, accent, agree }: FieldRowPr
   }, [target]);
 
   return (
-    <div className="flex items-center gap-3 py-2.5">
-      <span className="w-28 shrink-0 text-[13px] text-ink-soft">{label}</span>
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 py-2.5">
+      <span className="w-20 shrink-0 truncate text-[13px] text-ink-soft" title={label}>{label}</span>
       <span
-        className={`min-w-0 truncate rounded-md border ${a.chipBorder} ${a.softBg} ${a.text} px-2.5 py-1 text-xs font-medium`}
+        className={`max-w-full min-w-0 truncate rounded-md border ${a.chipBorder} ${a.softBg} ${a.text} px-2.5 py-1 text-xs font-medium`}
         title={value}
       >
         {value}
       </span>
-      <div className="relative h-1.5 min-w-16 flex-1 overflow-hidden rounded-full bg-track">
+      <div className="relative h-1.5 min-w-0 w-16 overflow-hidden rounded-full bg-track flex-1">
         <div
           className={`absolute inset-y-0 left-0 rounded-full ${a.barBg} transition-[width] duration-700 ease-out`}
           style={{ width: `${pct}%` }}
@@ -91,11 +91,11 @@ export function FieldSkeleton() {
   return (
     <div className="space-y-2">
       {SKELETON_FIELDS.map((label) => (
-        <div key={label} className="flex items-center gap-3 py-2.5">
-          <span className="w-28 shrink-0 text-[13px] text-muted">{label}</span>
-          <span className="skeleton-shimmer h-6 w-24 rounded-md" />
-          <div className="skeleton-shimmer h-1.5 flex-1 rounded-full" />
-          <span className="w-9" />
+        <div key={label} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 py-2.5">
+          <span className="w-20 shrink-0 truncate text-[13px] text-muted">{label}</span>
+          <span className="skeleton-shimmer h-6 w-16 rounded-md" />
+          <div className="skeleton-shimmer h-1.5 w-16 flex-1 rounded-full" />
+          <span className="w-9 shrink-0" />
         </div>
       ))}
     </div>

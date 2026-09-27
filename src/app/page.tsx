@@ -57,14 +57,14 @@ interface AppShellProps {
 
 function AppShell({ children, onOpenSettings, trackFlowA, trackFlowB }: AppShellProps) {
   return (
-    <div className="flex h-screen flex-col overflow-hidden">
+    <div className="flex h-dvh flex-col overflow-hidden">
       <header className="shrink-0 border-b border-line bg-panel">
         <div className="flex h-14 items-center justify-between px-4 sm:px-6">
           <div className="flex items-baseline gap-2.5">
             <h1 className="font-display text-base font-bold tracking-tight text-ink">Flow Race</h1>
             <span className="hidden font-mono text-xs text-muted sm:inline">LLM vs Jev triage</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <button
               onClick={onOpenSettings}
               title="Settings"
@@ -332,7 +332,7 @@ export default function Home() {
             </button>
             <div className="animate-rise mb-4 flex items-center justify-between">
               <div>
-                <h2 className="font-display text-xl font-semibold text-ink">{viewingSession.label}</h2>
+                <h2 className="font-display text-xl font-semibold break-words text-ink">{viewingSession.label}</h2>
                 <p className="mt-1 font-mono text-xs text-muted">
                   {viewingSession.type} · {new Date(viewingSession.createdAt).toLocaleString()}
                 </p>
@@ -341,7 +341,7 @@ export default function Home() {
 
             <div className="mb-6 rounded-xl border border-line bg-panel p-5">
               <p className="mb-2 font-mono text-[10px] uppercase tracking-wide text-muted">Ticket</p>
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink">
+              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-ink">
                 {typeof viewingSession.input === "string"
                   ? viewingSession.input
                   : (viewingSession.input as { text?: string })?.text ?? ""}

@@ -13,6 +13,13 @@ const CROSS_LABELS: Record<string, string> = {
   threatens_to_cancel_or_leave: "threatens to leave",
 };
 
+const PRIORITY_CLUE_LABELS: Record<string, string> = {
+  outage_or_emergency: "live outage / security / financial emergency",
+  blocked_from_work: "blocked from doing their work",
+  strong_frustration: "strong frustration or anger, in their own words",
+  minor_no_pressure: "minor inconvenience, no real time pressure",
+};
+
 function SignalBar({
   label,
   confidence,
@@ -24,16 +31,16 @@ function SignalBar({
 }) {
   const pct = Math.round(Math.min(1, Math.max(0, confidence)) * 100);
   return (
-    <div className="flex items-center gap-3 py-1.5">
+    <div className="flex items-start gap-3 py-1.5">
       <span
-        className={`w-28 shrink-0 truncate font-mono text-[11px] ${
+        className={`min-w-0 flex-1 text-[11px] leading-snug break-words ${
           highlight ? "font-semibold text-ink" : "text-muted"
         }`}
         title={label}
       >
         {label}
       </span>
-      <div className="relative h-1.5 min-w-16 flex-1 overflow-hidden rounded-full bg-track">
+      <div className="relative mt-1 h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-track sm:w-20">
         <div
           className={`absolute inset-y-0 left-0 rounded-full transition-[width] duration-500 ease-out ${
             highlight ? ACCENT.b.barBg : "bg-ink/20"
@@ -66,13 +73,17 @@ function FieldSignals({
   if (entries.length === 0) return null;
   const sorted = [...entries].sort(([, a], [, b]) => b.confidence - a.confidence);
   const winner = winners[field];
-  const winnerEntry = entries.find(([k]) => k === winner);
-  const runnerUp = sorted.find(([k]) => k !== winner);
-  const rows: [string, { match: boolean; confidence: number }][] = [];
-  if (winnerEntry) rows.push(winnerEntry);
+  // Priority signals are evidence clues (not keyed by option) so the winner
+  // key won't be found there — fall back to the strongest clue.
+  const winnerEntry = entries.find(([k]) => k === winner) ?? sorted[0];
+  if (!winnerEntry) return null;
+  const runnerUp = sorted.find(([k]) => k !== winnerEntry[0]);
+  const rows: [string, { match: boolean; confidence: number }][] = [winnerEntry];
   if (runnerUp) rows.push(runnerUp);
   const hidden = sorted.filter(([k]) => !rows.some(([rk]) => rk === k));
   const contested = mismatch[field];
+  const pretty =
+    field === "priority" ? (k: string) => PRIORITY_CLUE_LABELS[k] ?? k : (k: string) => k;
 
   return (
     <div
@@ -80,7 +91,7 @@ function FieldSignals({
         contested ? "border-l-[3px] border-amber-500" : "border-l border-line"
       }`}
     >
-      <div className="mb-1 flex items-baseline gap-2">
+      <div className="mb-1 flex flex-wrap items-baseline gap-x-2">
         <span className="font-mono text-[10px] font-semibold uppercase tracking-wide text-ink-soft">
           {label}
         </span>
@@ -91,11 +102,11 @@ function FieldSignals({
         )}
       </div>
       {rows.map(([key, sig]) => (
-        <SignalBar key={key} label={key} confidence={sig.confidence} highlight={key === winner} />
+        <SignalBar key={key} label={pretty(key)} confidence={sig.confidence} highlight={key === winnerEntry[0]} />
       ))}
       {showAll &&
         hidden.map(([key, sig]) => (
-          <SignalBar key={key} label={key} confidence={sig.confidence} highlight={false} />
+          <SignalBar key={key} label={pretty(key)} confidence={sig.confidence} highlight={false} />
         ))}
       {hidden.length > 0 && (
         <button

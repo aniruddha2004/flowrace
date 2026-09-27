@@ -39,8 +39,8 @@ function TallyRow({ label, tally }: { label: string; tally: MetricTally }) {
   const total = Math.max(1, tally.a + tally.tie + tally.b);
   return (
     <div className="py-2.5">
-      <div className="mb-1.5 flex items-center justify-between">
-        <span className="text-xs font-medium text-ink-soft">{label}</span>
+      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-x-3">
+        <span className="min-w-0 break-words text-xs font-medium text-ink-soft">{label}</span>
         <div className="flex items-center gap-3 font-mono text-xs tabular-nums">
           <span className="inline-flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-full bg-accent-a" aria-hidden />
@@ -76,8 +76,8 @@ export function Scoreboard({ data }: { data: ScoreboardData }) {
 
   return (
     <section className="rounded-xl border border-line bg-panel p-5">
-      <div className="mb-1 flex items-baseline justify-between">
-        <h2 className="font-display text-sm font-semibold text-ink">Session scoreboard</h2>
+      <div className="mb-1 flex items-baseline justify-between gap-3">
+        <h2 className="min-w-0 font-display text-sm font-semibold text-ink">Session scoreboard</h2>
         <span className="font-mono text-xs tabular-nums text-muted">
           {data.runs} {data.runs === 1 ? "race" : "races"}
         </span>

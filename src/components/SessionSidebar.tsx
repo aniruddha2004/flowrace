@@ -128,7 +128,7 @@ export function SessionSidebar({ activeId, onSelect, onNew, refreshKey = 0 }: Se
                     )}
                     <div className="flex items-start gap-2">
                       <div className="min-w-0 flex-1">
-                        <p className="line-clamp-2 text-xs leading-snug text-ink">{s.label}</p>
+                        <p className="line-clamp-2 break-words text-xs leading-snug text-ink" title={s.label}>{s.label}</p>
                         <p className="mt-0.5 font-mono text-[10px] text-muted">
                           {new Date(s.createdAt).toLocaleTimeString("en-US", {
                             hour: "2-digit",

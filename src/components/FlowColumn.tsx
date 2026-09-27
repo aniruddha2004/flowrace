@@ -171,6 +171,39 @@ function WhySection({ accent, state }: { accent: Accent; state: FlowState }) {
   );
 }
 
+function ReplyBlock({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const long = text.trim().split("\n").length > 6 || text.length > 420;
+  return (
+    <div className="animate-rise rounded-lg border border-line bg-paper">
+      <div className="relative overflow-hidden p-4">
+        <p
+          className={`text-sm leading-relaxed break-words text-ink ${
+            expanded ? "" : "max-h-[7.5rem]"
+          } overflow-hidden`}
+        >
+          {text}
+        </p>
+        {!expanded && long && (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-paper to-transparent"
+          />
+        )}
+      </div>
+      {long && (
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          className="border-t border-line px-4 py-2 font-mono text-[10px] uppercase tracking-wide text-accent-b transition-colors hover:opacity-80"
+        >
+          {expanded ? "Show less" : "Show full reply"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function FlowColumn({ accent, title, subtitle, state, fieldsAgree }: FlowColumnProps) {
   const a = ACCENT[accent];
   const started =
@@ -189,10 +222,10 @@ export function FlowColumn({ accent, title, subtitle, state, fieldsAgree }: Flow
   return (
     <section className="flex flex-col overflow-hidden rounded-xl border border-line bg-panel">
       <header className={`flex items-start justify-between gap-3 border-b border-line p-5 ${accent === "a" ? "bg-accent-a-soft/40" : "bg-accent-b-soft/40"}`}>
-        <div className="flex items-start gap-3">
+        <div className="flex min-w-0 items-start gap-3">
           <span aria-hidden className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${a.dotBg}`} />
-          <div>
-            <h2 className={`font-display text-base font-semibold ${a.text}`}>{title}</h2>
+          <div className="min-w-0">
+            <h2 className={`font-display text-base font-semibold break-words ${a.text}`}>{title}</h2>
             <p className="mt-0.5 max-w-sm text-xs leading-relaxed text-ink-soft">{subtitle}</p>
           </div>
         </div>
@@ -208,9 +241,9 @@ export function FlowColumn({ accent, title, subtitle, state, fieldsAgree }: Flow
         </div>
       ) : (
         <div className="animate-rise flex flex-1 flex-col gap-6 p-5">
-          <div className="flex items-center gap-6 rounded-lg bg-paper px-4 py-3">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg bg-paper px-4 py-3">
             <StepNode step={state.classification} label="classification" accent={accent} />
-            <span aria-hidden className="h-px flex-1 bg-line" />
+            <span aria-hidden className="hidden h-px min-w-6 flex-1 bg-line sm:block" />
             <StepNode step={state.reply} label="reply" accent={accent} />
           </div>
 
@@ -245,9 +278,7 @@ export function FlowColumn({ accent, title, subtitle, state, fieldsAgree }: Flow
           <div>
             <h3 className="mb-1 font-display text-sm font-medium text-ink">Drafted reply</h3>
             {state.replyText ? (
-              <div className="animate-rise rounded-lg border border-line bg-paper p-4 text-sm leading-relaxed text-ink">
-                {state.replyText}
-              </div>
+              <ReplyBlock text={state.replyText} />
             ) : state.reply.status === "running" ? (
               <div className="space-y-2 rounded-lg border border-line p-4">
                 <div className="skeleton-shimmer h-3 w-full rounded" />
@@ -326,16 +357,16 @@ function MetricLine({
   highlight: Accent;
 }) {
   return (
-    <div className="flex items-center gap-2 text-ink-soft">
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-ink-soft">
       <span
-        className={`rounded px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide ${
+        className={`shrink-0 rounded px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide ${
           engine === "Jev" ? "bg-accent-b-soft text-accent-b" : `${ACCENT[highlight].softBg} ${ACCENT[highlight].text}`
         }`}
       >
         {engine}
       </span>
-      <span className="w-16 text-muted">{step}</span>
-      <span className="text-ink">
+      <span className="w-14 shrink-0 text-muted sm:w-16">{step}</span>
+      <span className="min-w-0 break-words text-ink">
         {fmtTokens(metrics.inputTokens)} in / {fmtTokens(metrics.outputTokens)} out
       </span>
       <span className="text-muted">·</span>

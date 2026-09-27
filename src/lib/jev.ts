@@ -104,6 +104,35 @@ const CROSS_CUTTING: [string, string][] = [
   ],
 ];
 
+// Priority signals: atomic evidence-of-urgency clues, NOT one question per
+// taxonomy level (that would just restate the decision). These probe what is
+// IN the ticket; the level choice should fall out of these facts.
+const PRIORITY_CLUES: [string, string][] = [
+  [
+    "outage_or_emergency",
+    "Is there a live outage, security exposure, legal, or financial emergency described in this ticket?",
+  ],
+  [
+    "blocked_from_work",
+    "Does the customer describe being blocked from doing their work?",
+  ],
+  [
+    "strong_frustration",
+    "Does the customer express strong frustration or anger in their own words?",
+  ],
+  [
+    "minor_no_pressure",
+    "Is this a minor inconvenience with no real time pressure — can the customer reasonably wait?",
+  ],
+];
+
+const URGENCY_CLUES = [
+  "outage_or_emergency",
+  "blocked_from_work",
+  "strong_frustration",
+] as const;
+const LOW_URGENCY_CLUES = ["minor_no_pressure"] as const;
+
 function buildQuestions(
   state: string,
   taxonomy?: Taxonomy,
@@ -141,25 +170,35 @@ function buildQuestions(
     },
   };
 
-  // Transparency signals: one isolated noul probe per taxonomy option, derived
-  // from the same descriptions as the choice criteria, so editing a taxonomy
-  // option updates both its rubric and its transparency question at once.
+  // Transparency signals for category & route: one isolated noul clue per
+  // taxonomy option, derived from its description — but phrased as a
+  // content-level fact check. The question never names the option key or
+  // says "match the category", so Jev evaluates evidence independently of
+  // its own classification decision (non-circular). Editing a taxonomy
+  // option's description still updates its clue automatically.
   for (const [field, criteria] of [
     ["category", t.categoryCriteria],
-    ["priority", t.priorityCriteria],
     ["route_to_team", t.routeCriteria],
   ] as const) {
-    const label = field.replace(/_/g, " ");
     for (const [key, description] of Object.entries(criteria)) {
       questions[`signal_${field}_${key}`] = {
         type: "noul",
-        instructions: `Does this ticket match the ${label} option "${key}" meaning: ${description}?`,
+        instructions: `Content check about the ticket's subject matter (this is not a label assignment): does the ticket describe the following situation — ${description}?`,
         criteria: {
-          true: "The ticket clearly fits this meaning",
-          false: "The ticket does not fit this meaning",
+          true: "The ticket describes this",
+          false: "The ticket does not describe this",
         },
       };
     }
+  }
+  // Priority signals: fixed atomic evidence clues instead of per-option
+  // questions — a clue is about the ticket's content, never about a level.
+  for (const [key, question] of PRIORITY_CLUES) {
+    questions[`signal_priority_${key}`] = {
+      type: "noul",
+      instructions: question,
+      criteria: { true: "Yes", false: "No" },
+    };
   }
   for (const [key, question] of CROSS_CUTTING) {
     questions[`signal_x_${key}`] = {
@@ -176,7 +215,6 @@ function noulSignal(answer: JevAnswerNoul | undefined): FieldSignal {
   return { match: p >= 0.5, confidence: p };
 }
 
-const SIGNAL_FIELDS = ["category", "priority", "route_to_team"] as const;
 
 function mapSignals(
   answers: Record<string, JevAnswerChoice | JevAnswerScore | JevAnswerNoul>,
@@ -203,13 +241,17 @@ function mapSignals(
   return signals;
 }
 
-/** True when the winner's match probability is not clearly the highest. */
+/** True when the selected option's supporting evidence is not clearly the
+ * strongest. Category/route clues are keyed 1:1 by option (supporting clue =
+ * the selected option's clue). Priority clues are evidence facts — urgency
+ * vs. minor-inconvenience — matched to the selected level's position. */
 function computeSignalMismatch(
   signals: TicketSignals,
   winners: { category: string; priority: string; route_to_team: string },
+  priorityKeys: string[],
 ) {
   const out = { category: false, priority: false, route_to_team: false };
-  for (const field of SIGNAL_FIELDS) {
+  for (const field of ["category", "route_to_team"] as const) {
     const entries = Object.entries(signals[field]);
     if (entries.length < 2) continue;
     const winnerConf = signals[field][winners[field]]?.confidence ?? 0;
@@ -218,6 +260,20 @@ function computeSignalMismatch(
       .map(([, s]) => s.confidence)
       .sort((a, b) => b - a)[0] ?? 0;
     out[field] = winnerConf - runnerUp < 0.15;
+  }
+  const idx = priorityKeys.indexOf(winners.priority);
+  if (idx !== -1 && URGENCY_CLUES.some((k) => signals.priority[k])) {
+    const pos = priorityKeys.length > 1 ? idx / (priorityKeys.length - 1) : 1;
+    const urgencyConf = Math.max(
+      ...URGENCY_CLUES.map((k) => signals.priority[k]?.confidence ?? 0),
+    );
+    const minorConf =
+      LOW_URGENCY_CLUES.reduce(
+        (m, k) => Math.max(m, signals.priority[k]?.confidence ?? 0),
+        0,
+      );
+    const [support, oppose] = pos >= 0.5 ? [urgencyConf, minorConf] : [minorConf, urgencyConf];
+    out.priority = support - oppose < 0.15;
   }
   return out;
 }
@@ -296,6 +352,7 @@ export async function classifyWithJev(
     priority: priority.choice,
     route_to_team: route.choice,
   };
+  const priorityKeys = Object.keys(getTaxonomyForJev(taxonomy).priorityCriteria);
 
   return {
     analysis: {
@@ -311,7 +368,7 @@ export async function classifyWithJev(
         route_to_team: route.confidence,
       },
       signals,
-      signalMismatch: computeSignalMismatch(signals, winners),
+      signalMismatch: computeSignalMismatch(signals, winners, priorityKeys),
     },
     inputTokens,
     outputTokens,

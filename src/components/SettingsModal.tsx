@@ -87,8 +87,8 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
           </button>
         </div>
 
-        <div className="border-b border-line px-6">
-          <div className="flex gap-5">
+        <div className="overflow-x-auto border-b border-line px-6">
+          <div className="flex gap-5 whitespace-nowrap">
             {TABS.map((t) => (
               <button
                 key={t.id}
@@ -387,7 +387,7 @@ function TaxonomyRow({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <code className="rounded bg-track px-1.5 py-0.5 font-mono text-xs text-ink-soft">
+            <code className="max-w-full break-all rounded bg-track px-1.5 py-0.5 font-mono text-xs text-ink-soft">
               {option.key}
             </code>
             {editing ? (
@@ -408,7 +408,7 @@ function TaxonomyRow({
               className="mt-1.5 w-full resize-y rounded border border-line bg-panel px-2 py-1 font-mono text-xs text-ink focus:border-accent-b/50 focus:outline-none"
             />
           ) : (
-            <p className="mt-1 text-sm text-ink-soft">{option.description}</p>
+            <p className="mt-1 break-words text-sm text-ink-soft">{option.description}</p>
           )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
