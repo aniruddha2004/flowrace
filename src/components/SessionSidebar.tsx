@@ -119,7 +119,7 @@ export function SessionSidebar({ activeId, onSelect, onNew, refreshKey = 0 }: Se
                 <li key={s.id} className="group relative">
                   <button
                     onClick={() => void load(s.id)}
-                    className={`relative w-full px-3.5 py-3 text-left transition-colors ${
+                    className={`relative w-full pl-8 pr-9 py-3 text-left transition-colors ${
                       active ? "bg-accent-a-soft" : "hover:bg-track"
                     }`}
                   >
