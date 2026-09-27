@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { COMPARE_FIELDS, fieldsAgree } from "@/lib/compare";
 import type { RaceEvent, StepMetrics } from "@/lib/events";
 import { emptyFlowState, flowProgress, type FlowState } from "@/lib/race-state";
