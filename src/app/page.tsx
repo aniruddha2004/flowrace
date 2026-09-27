@@ -285,15 +285,21 @@ export default function Home() {
         )
       : null;
 
+  const resetLiveView = useCallback((clearText: boolean) => {
+    setViewingSession(null);
+    setBannerError(null);
+    completedRef.current = {};
+    setFlowA(emptyFlowState());
+    setFlowB(emptyFlowState());
+    if (clearText) setSingleText("");
+    setSidebarOpen(false);
+  }, []);
+
   const sidebar = (
     <SessionSidebar
       activeId={viewingSession?.id ?? null}
       onSelect={loadSession}
-      onNew={() => {
-        setViewingSession(null);
-        setSingleText("");
-        setSidebarOpen(false);
-      }}
+      onNew={() => resetLiveView(true)}
       refreshKey={historyVersion}
     />
   );
@@ -305,7 +311,7 @@ export default function Home() {
         <div className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-[1400px] px-6 pb-16 pt-8 sm:px-10 lg:px-16">
             <button
-              onClick={() => setViewingSession(null)}
+              onClick={() => resetLiveView(false)}
               className="mb-6 inline-flex items-center gap-1.5 font-mono text-xs text-accent-b hover:opacity-80"
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
