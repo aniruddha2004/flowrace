@@ -291,6 +291,7 @@ export default function Home() {
     completedRef.current = {};
     setFlowA(emptyFlowState());
     setFlowB(emptyFlowState());
+    setScoreboard(emptyScoreboard());
     if (clearText) setSingleText("");
     setSidebarOpen(false);
   }, []);
