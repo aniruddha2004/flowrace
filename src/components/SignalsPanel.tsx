@@ -82,8 +82,7 @@ function FieldSignals({
   if (runnerUp) rows.push(runnerUp);
   const hidden = sorted.filter(([k]) => !rows.some(([rk]) => rk === k));
   const contested = mismatch[field];
-  const pretty =
-    field === "priority" ? (k: string) => PRIORITY_CLUE_LABELS[k] ?? k : (k: string) => k;
+  const pretty = (k: string) => PRIORITY_CLUE_LABELS[k] ?? k;
 
   return (
     <div

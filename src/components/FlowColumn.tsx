@@ -113,10 +113,71 @@ function ErrorCard({ state }: { state: FlowState }) {
   );
 }
 
+function SignalsExplainer({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
+  if (!open) return null;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4 backdrop-blur-[2px]"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+      role="dialog"
+      aria-modal="true"
+      aria-label="How to read these signals"
+    >
+      <div className="animate-modal w-full max-w-md rounded-xl border border-line bg-panel shadow-elevated">
+        <div className="flex items-center justify-between border-b border-line px-5 py-3">
+          <h2 className="font-display text-sm font-semibold text-ink">How to read these signals</h2>
+          <button
+            onClick={onClose}
+            aria-label="Close explainer"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-ink-soft transition-colors hover:bg-track hover:text-ink"
+          >
+            ✕
+          </button>
+        </div>
+        <ul className="list-disc space-y-2 px-5 py-4 pl-9 text-sm leading-relaxed text-ink-soft">
+          <li>
+            <strong className="text-ink">Each row</strong> is an independent
+            yes/no check against the ticket&apos;s actual content — not a vote
+            for the final answer.
+          </li>
+          <li>
+            <strong className="text-ink">The number (0–100)</strong> is how
+            confident Jev is that this specific clue is true of the ticket —
+            not its confidence in the overall category / priority / route.
+          </li>
+          <li>
+            <strong className="text-ink">Closely contested</strong> (amber
+            flag) means the selected value&apos;s supporting clue and the
+            closest runner-up were within a small margin — a genuinely harder
+            call, not a clean one.
+          </li>
+          <li>
+            <strong className="text-ink">Cross-cutting</strong> clues are
+            not tied to any one field — they add context that matters to all
+            of them (e.g. whether multiple issues are bundled in one ticket).
+          </li>
+        </ul>
+        <p className="border-t border-line px-5 py-3 font-mono text-[11px] leading-relaxed text-muted">
+          These are Jev&apos;s native per-question answers from the same pass
+          that made the decision — real independent checks, not text
+          generated to sound like reasoning.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // Flow-native "why": Flow A renders the LLM's own prose rationale; Flow B
 // renders Jev's calibrated signals. Never both — guarded per field.
 function WhySection({ accent, state }: { accent: Accent; state: FlowState }) {
   const [open, setOpen] = useState(false);
+  const [info, setInfo] = useState(false);
   const reasoning = state.analysis?.reasoning;
   const signals = state.analysis?.signals;
   const mismatch = state.analysis?.signalMismatch;
@@ -124,27 +185,40 @@ function WhySection({ accent, state }: { accent: Accent; state: FlowState }) {
 
   return (
     <div>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 font-mono text-xs font-medium text-accent-b transition-colors hover:opacity-80"
-        aria-expanded={open}
-      >
-        <svg
-          width="10"
-          height="10"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={`transition-transform duration-200 ${open ? "rotate-90" : ""}`}
-          aria-hidden
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className="flex items-center gap-1.5 font-mono text-xs font-medium text-accent-b transition-colors hover:opacity-80"
+          aria-expanded={open}
         >
-          <path d="M9 18l6-6-6-6" />
-        </svg>
-        Why{open ? "" : " — how this classification was reached"}
-      </button>
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={`transition-transform duration-200 ${open ? "rotate-90" : ""}`}
+            aria-hidden
+          >
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+          Why{open ? "" : " — how this classification was reached"}
+        </button>
+        {signals && (
+          <button
+            onClick={() => setInfo(true)}
+            aria-label="How to read these signals"
+            title="How to read these signals"
+            className="flex h-4.5 w-4.5 items-center justify-center rounded-full border border-line font-mono text-[10px] text-muted transition-colors hover:border-accent-b hover:text-accent-b"
+          >
+            i
+          </button>
+        )}
+      </div>
+      {signals && <SignalsExplainer open={info} onClose={() => setInfo(false)} />}
       {open && (
         <div className="animate-rise mt-2">
           {reasoning ? (

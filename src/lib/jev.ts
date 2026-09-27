@@ -133,10 +133,20 @@ const URGENCY_CLUES = [
 ] as const;
 const LOW_URGENCY_CLUES = ["minor_no_pressure"] as const;
 
-function buildQuestions(
-  state: string,
-  taxonomy?: Taxonomy,
-): Record<string, JevChoiceQuestion | JevScoreQuestion | JevNoulQuestion> {
+// Human-readable clue label derived from an option description — this becomes
+// the UI row label, turning "bug" into "describes something is broken, …".
+function clueLabel(description: string): string {
+  const d = description.trim().replace(/\.$/, "");
+  return "describes " + d.charAt(0).toLowerCase() + d.slice(1);
+}
+
+interface BuiltQuestions {
+  questions: Record<string, JevChoiceQuestion | JevScoreQuestion | JevNoulQuestion>;
+  categoryClues: [string, string][];
+  routeClues: [string, string][];
+}
+
+function buildQuestions(state: string, taxonomy?: Taxonomy): BuiltQuestions {
   const t = getTaxonomyForJev(taxonomy);
   const questions: Record<
     string,
@@ -176,11 +186,14 @@ function buildQuestions(
   // says "match the category", so Jev evaluates evidence independently of
   // its own classification decision (non-circular). Editing a taxonomy
   // option's description still updates its clue automatically.
-  for (const [field, criteria] of [
-    ["category", t.categoryCriteria],
-    ["route_to_team", t.routeCriteria],
+  const categoryClues: [string, string][] = [];
+  const routeClues: [string, string][] = [];
+  for (const [field, criteria, out] of [
+    ["category", t.categoryCriteria, categoryClues],
+    ["route_to_team", t.routeCriteria, routeClues],
   ] as const) {
     for (const [key, description] of Object.entries(criteria)) {
+      out.push([key, clueLabel(description)]);
       questions[`signal_${field}_${key}`] = {
         type: "noul",
         instructions: `Content check about the ticket's subject matter (this is not a label assignment): does the ticket describe the following situation — ${description}?`,
@@ -207,7 +220,7 @@ function buildQuestions(
       criteria: { true: "Yes", false: "No" },
     };
   }
-  return questions;
+  return { questions, categoryClues, routeClues };
 }
 
 function noulSignal(answer: JevAnswerNoul | undefined): FieldSignal {
@@ -218,7 +231,11 @@ function noulSignal(answer: JevAnswerNoul | undefined): FieldSignal {
 
 function mapSignals(
   answers: Record<string, JevAnswerChoice | JevAnswerScore | JevAnswerNoul>,
+  categoryClues: [string, string][],
+  routeClues: [string, string][],
 ): TicketSignals {
+  const clueFor = (list: [string, string][], k: string) =>
+    list.find(([ok]) => ok === k)?.[1] ?? k;
   const noul = (key: string): FieldSignal => {
     const a = answers[key];
     return a && a.type === "noul" ? noulSignal(a) : { match: false, confidence: 0 };
@@ -233,7 +250,15 @@ function mapSignals(
     if (!key.startsWith("signal_") || key.startsWith("signal_x_")) continue;
     const m = /^signal_(category|priority|route_to_team)_(.+)$/.exec(key);
     if (!m) continue;
-    signals[m[1] as "category"][m[2]] = noul(key);
+    // Category/route rows are keyed by the clue label, not the option key —
+    // that's the non-circular justification the UI renders directly.
+    const k =
+      m[1] === "category"
+        ? clueFor(categoryClues, m[2])
+        : m[1] === "route_to_team"
+          ? clueFor(routeClues, m[2])
+          : m[2];
+    signals[m[1] as "category"][k] = noul(key);
   }
   for (const [key] of CROSS_CUTTING) {
     signals.cross_cutting[key] = noul(`signal_x_${key}`);
@@ -242,21 +267,29 @@ function mapSignals(
 }
 
 /** True when the selected option's supporting evidence is not clearly the
- * strongest. Category/route clues are keyed 1:1 by option (supporting clue =
- * the selected option's clue). Priority clues are evidence facts — urgency
- * vs. minor-inconvenience — matched to the selected level's position. */
+ * strongest. Category/route rows are keyed by clue label, so winner keys are
+ * translated via the clue map first. Priority clues are evidence facts —
+ * urgency vs. minor-inconvenience, matched to the selected level. */
 function computeSignalMismatch(
   signals: TicketSignals,
   winners: { category: string; priority: string; route_to_team: string },
   priorityKeys: string[],
+  categoryClues: [string, string][],
+  routeClues: [string, string][],
 ) {
+  const translate = (list: [string, string][], key: string) =>
+    list.find(([k]) => k === key)?.[1] ?? key;
+  const clueWinners: Record<string, string> = {
+    category: translate(categoryClues, winners.category),
+    route_to_team: translate(routeClues, winners.route_to_team),
+  };
   const out = { category: false, priority: false, route_to_team: false };
   for (const field of ["category", "route_to_team"] as const) {
     const entries = Object.entries(signals[field]);
     if (entries.length < 2) continue;
-    const winnerConf = signals[field][winners[field]]?.confidence ?? 0;
+    const winnerConf = signals[field][clueWinners[field]]?.confidence ?? 0;
     const runnerUp = entries
-      .filter(([k]) => k !== winners[field])
+      .filter(([k]) => k !== clueWinners[field])
       .map(([, s]) => s.confidence)
       .sort((a, b) => b - a)[0] ?? 0;
     out[field] = winnerConf - runnerUp < 0.15;
@@ -293,13 +326,14 @@ export async function classifyWithJev(
   const state = st.businessContext.trim()
     ? `Business context:\n${st.businessContext.trim()}\n\nTicket:\n${ticketText}`
     : ticketText;
+  const built = buildQuestions(state, taxonomy);
   const res = await postJsonWithRetry(
     JEV_ENDPOINT,
     { Authorization: `Bearer ${apiKey}` },
     {
       state,
       model: JEV_MODEL,
-      questions: buildQuestions(state, taxonomy),
+      questions: built.questions,
     },
   );
 
@@ -346,7 +380,7 @@ export async function classifyWithJev(
   const inputTokens = json.usage?.input_tokens ?? 0;
   const outputTokens = json.usage?.output_tokens ?? 0;
 
-  const signals = mapSignals(answers);
+  const signals = mapSignals(answers, built.categoryClues, built.routeClues);
   const winners = {
     category: category.choice,
     priority: priority.choice,
@@ -368,7 +402,13 @@ export async function classifyWithJev(
         route_to_team: route.confidence,
       },
       signals,
-      signalMismatch: computeSignalMismatch(signals, winners, priorityKeys),
+      signalMismatch: computeSignalMismatch(
+        signals,
+        winners,
+        priorityKeys,
+        built.categoryClues,
+        built.routeClues,
+      ),
     },
     inputTokens,
     outputTokens,
