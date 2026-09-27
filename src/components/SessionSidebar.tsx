@@ -63,7 +63,7 @@ export function SessionSidebar({ activeId, onSelect, onNew, refreshKey = 0 }: Se
   };
 
   return (
-    <aside className="flex w-64 shrink-0 flex-col border-r border-line bg-panel">
+    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-line bg-panel">
       <div className="flex h-14 items-center justify-between border-b border-line px-4">
         <h3 className="font-display text-sm font-semibold text-ink">History</h3>
         <button
