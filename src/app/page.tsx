@@ -1,69 +1,445 @@
-import Image from "next/image";
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  COMPARE_FIELDS,
+  agreementRatio,
+  costWinner,
+  fieldsAgree,
+  latencyWinner,
+  parseErrorWinner,
+} from "@/lib/compare";
+import type { RaceEvent, StepMetrics } from "@/lib/events";
+import { emptyFlowState, flowProgress, type FlowState } from "@/lib/race-state";
+import type { TicketAnalysis } from "@/lib/schema";
+import type { SessionFull } from "@/lib/sessions";
+
+import { ComparisonStrip } from "@/components/ComparisonStrip";
+import { FlowColumn } from "@/components/FlowColumn";
+import { InputCard } from "@/components/InputCard";
+import { Scoreboard, emptyScoreboard, tallyWinner, type ScoreboardData } from "@/components/Scoreboard";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { SettingsModal } from "@/components/SettingsModal";
+import { SessionSidebar } from "@/components/SessionSidebar";
+
+interface CompletedFlow {
+  totalMs: number;
+  totals: StepMetrics;
+  analysis: TicketAnalysis;
+}
+
+// Header race track — both flows' live progress made literal.
+function RaceTrack({ flowA, flowB }: { flowA: FlowState; flowB: FlowState }) {
+  const pa = flowProgress(flowA) * 100;
+  const pb = flowProgress(flowB) * 100;
+  return (
+    <div className="h-[3px] w-full bg-track">
+      <div className="relative h-full w-full">
+        <div
+          className="absolute inset-y-0 left-0 bg-accent-a transition-[width] duration-500 ease-out"
+          style={{ width: `${pa}%` }}
+        />
+        <div
+          className="absolute inset-y-0 left-0 bg-accent-b/70 transition-[width] duration-500 ease-out"
+          style={{ width: `${pb}%`, mixBlendMode: "multiply" }}
+        />
+      </div>
+    </div>
+  );
+}
+
+interface AppShellProps {
+  children: React.ReactNode;
+  onOpenSettings: () => void;
+  trackFlowA?: FlowState;
+  trackFlowB?: FlowState;
+}
+
+function AppShell({ children, onOpenSettings, trackFlowA, trackFlowB }: AppShellProps) {
+  return (
+    <div className="flex h-screen flex-col overflow-hidden">
+      <header className="shrink-0 border-b border-line bg-panel">
+        <div className="flex h-14 items-center justify-between px-4 sm:px-6">
+          <div className="flex items-baseline gap-2.5">
+            <h1 className="font-display text-base font-bold tracking-tight text-ink">Flow Race</h1>
+            <span className="hidden font-mono text-xs text-muted sm:inline">LLM vs Jev triage</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onOpenSettings}
+              title="Settings"
+              aria-label="Settings"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-line bg-panel text-ink-soft transition-colors hover:border-ink/20 hover:text-ink active:scale-95"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1-.33 1.82V9c.67.6 1.51 1 1.51 1h.09a2 2 0 0 1 0 4z" />
+              </svg>
+            </button>
+            <ThemeToggle />
+          </div>
+        </div>
+        {trackFlowA && trackFlowB && <RaceTrack flowA={trackFlowA} flowB={trackFlowB} />}
+      </header>
+      <div className="flex flex-1 overflow-hidden">{children}</div>
+    </div>
+  );
+}
 
 export default function Home() {
+  const [viewingSession, setViewingSession] = useState<SessionFull | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const [singleText, setSingleText] = useState("");
+  const [singleRunning, setSingleRunning] = useState(false);
+  const [flowA, setFlowA] = useState<FlowState>(emptyFlowState);
+  const [flowB, setFlowB] = useState<FlowState>(emptyFlowState);
+  const [scoreboard, setScoreboard] = useState<ScoreboardData>(emptyScoreboard);
+  const [bannerError, setBannerError] = useState<string | null>(null);
+  const completedRef = useRef<{ A?: CompletedFlow; B?: CompletedFlow }>({});
+  const [historyVersion, setHistoryVersion] = useState(0);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const refreshScoreboard = useCallback(() => {
+    fetch("/api/sessions")
+      .then((res) => res.json())
+      .then((data: { sessions: { id: string; type: string; createdAt: string }[] }) => {
+        setScoreboard((prev) => ({ ...prev, runs: data.sessions.length }));
+        setHistoryVersion((v) => v + 1);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    refreshScoreboard();
+  }, [refreshScoreboard]);
+
+  const readStream = useCallback(
+    async <T,>(
+      url: string,
+      body: Record<string, unknown>,
+      onEvent: (e: T) => void,
+      onDone?: () => void,
+    ) => {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok || !res.body) {
+        const detail = await res.text().catch(() => "");
+        throw new Error(`HTTP ${res.status}${detail ? ` — ${detail.slice(0, 200)}` : ""}`);
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try {
+            onEvent(JSON.parse(trimmed) as T);
+          } catch {
+            // ignore unparseable lines
+          }
+        }
+      }
+      if (buffer.trim()) {
+        try {
+          onEvent(JSON.parse(buffer) as T);
+        } catch {
+          // ignore
+        }
+      }
+      onDone?.();
+    },
+    [],
+  );
+
+  const applyRaceEvent = useCallback((event: RaceEvent) => {
+    switch (event.type) {
+      case "step_start": {
+        const setFlow = event.flow === "A" ? setFlowA : setFlowB;
+        setFlow((prev) => ({
+          ...prev,
+          [event.step]: { status: "running", startedAt: event.at },
+        }));
+        break;
+      }
+      case "step_done": {
+        const setFlow = event.flow === "A" ? setFlowA : setFlowB;
+        if (event.step === "classification") {
+          setFlow((prev) => ({
+            ...prev,
+            classification: { status: "done", ms: event.ms },
+            analysis: event.data,
+            classificationMetrics: event.metrics,
+          }));
+          const bucket = completedRef.current;
+          bucket[event.flow] = {
+            totalMs: bucket[event.flow]?.totalMs ?? 0,
+            totals: bucket[event.flow]?.totals ?? event.metrics,
+            analysis: event.data,
+          };
+        } else {
+          setFlow((prev) => ({
+            ...prev,
+            reply: { status: "done", ms: event.ms },
+            replyText: event.reply,
+            replyMetrics: event.metrics,
+          }));
+        }
+        break;
+      }
+      case "flow_done": {
+        const setFlow = event.flow === "A" ? setFlowA : setFlowB;
+        setFlow((prev) => ({ ...prev, totalMs: event.totalMs, totals: event.totals }));
+        const bucket = completedRef.current[event.flow];
+        if (bucket) {
+          bucket.totalMs = event.totalMs;
+          bucket.totals = event.totals;
+        }
+        break;
+      }
+      case "flow_error": {
+        const setFlow = event.flow === "A" ? setFlowA : setFlowB;
+        setFlow((prev) => ({
+          ...prev,
+          [event.step]: { status: "error" },
+          error: { step: event.step, code: event.code, message: event.message },
+        }));
+        break;
+      }
+      case "run_done": {
+        setSingleRunning(false);
+        const { A, B } = completedRef.current;
+        if (A && B) {
+          const ratio = agreementRatio(A.analysis, B.analysis);
+          setScoreboard((prev) => ({
+            runs: prev.runs + 1,
+            latency: tallyWinner(prev.latency, latencyWinner(A.totalMs, B.totalMs)),
+            cost: tallyWinner(prev.cost, costWinner(A.totals.costUsd, B.totals.costUsd)),
+            parseErrors: tallyWinner(prev.parseErrors, parseErrorWinner(A.totals.parseErrors, B.totals.parseErrors)),
+            agreementSum: prev.agreementSum + ratio,
+            agreementCount: prev.agreementCount + 1,
+          }));
+        }
+        void refreshScoreboard();
+        break;
+      }
+    }
+  }, [refreshScoreboard]);
+
+  const runSingleRace = useCallback(async () => {
+    if (singleRunning || !singleText.trim()) return;
+    setSingleRunning(true);
+    setBannerError(null);
+    completedRef.current = {};
+    setFlowA(emptyFlowState());
+    setFlowB(emptyFlowState());
+    setViewingSession(null);
+
+    try {
+      await readStream<RaceEvent>(
+        "/api/race",
+        { action: "run", text: singleText.trim() },
+        applyRaceEvent,
+      );
+    } catch (err) {
+      setBannerError(err instanceof Error ? err.message : String(err));
+      setSingleRunning(false);
+    }
+  }, [singleRunning, singleText, applyRaceEvent, readStream]);
+
+  const loadSession = useCallback((session: SessionFull) => {
+    if (session.type !== "single") return;
+    setViewingSession(session);
+    setBannerError(null);
+    setSidebarOpen(false);
+    const result = session.result as {
+      flows?: Partial<Record<"A" | "B", {
+        analysis?: TicketAnalysis;
+        reply?: string;
+        totalMs?: number;
+        totals?: StepMetrics;
+        classificationMetrics?: StepMetrics;
+        classificationMs?: number;
+        replyMetrics?: StepMetrics;
+        replyMs?: number;
+        error?: string;
+      }>>;
+    };
+    const a = result.flows?.A ?? {};
+    const b = result.flows?.B ?? {};
+    const hydrate = (f: typeof a): FlowState => ({
+      classification: f.analysis
+        ? { status: "done", ms: f.classificationMs ?? f.totalMs }
+        : { status: "idle" },
+      reply: f.reply
+        ? { status: "done", ms: f.replyMs ?? f.totalMs }
+        : { status: "idle" },
+      analysis: f.analysis,
+      classificationMetrics: f.classificationMetrics,
+      replyText: f.reply,
+      replyMetrics: f.replyMetrics,
+      totalMs: f.totalMs,
+      totals: f.totals,
+      error: f.error ? { step: "reply", code: "internal", message: f.error } : undefined,
+    });
+    setFlowA(hydrate(a));
+    setFlowB(hydrate(b));
+  }, []);
+
+  const agreeMap: Record<string, boolean> | null =
+    flowA.analysis && flowB.analysis
+      ? Object.fromEntries(
+          COMPARE_FIELDS.map((f) => [f, fieldsAgree(flowA.analysis!, flowB.analysis!, f)]),
+        )
+      : null;
+
+  const sidebar = (
+    <SessionSidebar
+      activeId={viewingSession?.id ?? null}
+      onSelect={loadSession}
+      onNew={() => {
+        setViewingSession(null);
+        setSingleText("");
+        setSidebarOpen(false);
+      }}
+      refreshKey={historyVersion}
+    />
+  );
+
+  if (viewingSession) {
+    return (
+      <AppShell onOpenSettings={() => setSettingsOpen(true)}>
+        <div className="hidden min-h-0 sm:flex sm:items-stretch">{sidebar}</div>
+        <div className="flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-[1400px] px-6 pb-16 pt-8 sm:px-10 lg:px-16">
+            <button
+              onClick={() => setViewingSession(null)}
+              className="mb-6 inline-flex items-center gap-1.5 font-mono text-xs text-accent-b hover:opacity-80"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+              Back to live race
+            </button>
+            <div className="animate-rise mb-4 flex items-center justify-between">
+              <div>
+                <h2 className="font-display text-xl font-semibold text-ink">{viewingSession.label}</h2>
+                <p className="mt-1 font-mono text-xs text-muted">
+                  {viewingSession.type} · {new Date(viewingSession.createdAt).toLocaleString()}
+                </p>
+              </div>
+            </div>
+
+            <div className="mb-6 rounded-xl border border-line bg-panel p-5">
+              <p className="mb-2 font-mono text-[10px] uppercase tracking-wide text-muted">Ticket</p>
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink">
+                {typeof viewingSession.input === "string"
+                  ? viewingSession.input
+                  : (viewingSession.input as { text?: string })?.text ?? ""}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+              <FlowColumn
+                accent="a"
+                title="Flow A — LLM tool-call"
+                subtitle="kimi-k3 classifies via forced submit_ticket_analysis tool-call (zod-validated, retried), then drafts the reply."
+                state={flowA}
+                fieldsAgree={agreeMap}
+              />
+              <FlowColumn
+                accent="b"
+                title="Flow B — Jev + LLM hybrid"
+                subtitle="Jev (TypeSafe System One) classifies with rubric questions; the LLM only drafts the reply from those decisions."
+                state={flowB}
+                fieldsAgree={agreeMap}
+              />
+            </div>
+            <div className="mt-6">
+              <ComparisonStrip flowA={flowA} flowB={flowB} />
+            </div>
+          </div>
+        </div>
+
+        <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      </AppShell>
+    );
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <AppShell
+      onOpenSettings={() => setSettingsOpen(true)}
+      trackFlowA={flowA}
+      trackFlowB={flowB}
+    >
+      <div className="hidden min-h-0 sm:flex sm:items-stretch">{sidebar}</div>
+
+      {/* Mobile sidebar drawer */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 z-40 sm:hidden">
+          <div className="absolute inset-0 bg-ink/40" onClick={() => setSidebarOpen(false)} />
+          <div className="animate-modal absolute inset-y-0 left-0">{sidebar}</div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+      )}
+
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-[1400px] px-6 pb-16 pt-8 sm:px-10 lg:px-16">
+          <div className="mb-6 flex items-center justify-between gap-3">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-line bg-panel text-ink-soft sm:hidden"
+              aria-label="Open history"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+          </div>
+
+          {bannerError && (
+            <div className="animate-rise mb-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300">
+              {bannerError}
+            </div>
+          )}
+
+          <div className="space-y-6">
+            <InputCard text={singleText} running={singleRunning} onTextChange={setSingleText} onRun={runSingleRace} />
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+              <FlowColumn
+                accent="a"
+                title="Flow A — LLM tool-call"
+                subtitle="kimi-k3 classifies via forced submit_ticket_analysis tool-call (zod-validated, retried), then drafts the reply."
+                state={flowA}
+                fieldsAgree={agreeMap}
+              />
+              <FlowColumn
+                accent="b"
+                title="Flow B — Jev + LLM hybrid"
+                subtitle="Jev (TypeSafe System One) classifies with rubric questions; the LLM only drafts the reply from those decisions."
+                state={flowB}
+                fieldsAgree={agreeMap}
+              />
+            </div>
+            <ComparisonStrip flowA={flowA} flowB={flowB} />
+            <Scoreboard data={scoreboard} />
+          </div>
+
+          <footer className="mt-12 border-t border-line pt-6 text-center font-mono text-xs text-muted">
+            Flow A: forced tool-calling · Flow B: Jev System One + reply-only · all metrics are real API usage
+          </footer>
         </div>
-      </main>
-    </div>
+      </div>
+
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+    </AppShell>
   );
 }

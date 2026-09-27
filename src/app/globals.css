@@ -1,26 +1,164 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, "SFMono-Regular", monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* ---------------------------------------------------------------------------
+   Design tokens.
+   Cool neutral surfaces (not the default warm cream) with two accent lanes:
+   amber for Flow A (the incumbent, all-LLM approach) and teal for Flow B
+   (the hybrid contender) — a deliberate "two lanes of a race" pairing that
+   is used consistently everywhere Flow A / Flow B are distinguished.
+--------------------------------------------------------------------------- */
+
+@theme {
+  --color-paper: #f2f3f6;
+  --color-panel: #ffffff;
+  --color-ink: #14161b;
+  --color-ink-soft: #565b66;
+  --color-line: #e1e3ea;
+  --color-accent-a: #a8621b;
+  --color-accent-a-soft: #f7ead9;
+  --color-accent-b: #0d7a68;
+  --color-accent-b-soft: #dcf1ec;
+  --color-track: #e9eaef;
+  --color-muted: #8b909c;
+
+  --shadow-elevated: 0 20px 45px -12px rgb(20 22 27 / 0.22);
+  --shadow-soft: 0 1px 2px rgb(20 22 27 / 0.04);
+}
+
+html.dark {
+  --color-paper: #0f1114;
+  --color-panel: #191c22;
+  --color-ink: #e9eaee;
+  --color-ink-soft: #9aa0ac;
+  --color-line: #272b34;
+  --color-accent-a: #d8933f;
+  --color-accent-a-soft: #3a2a15;
+  --color-accent-b: #3fbca6;
+  --color-accent-b-soft: #12332e;
+  --color-track: #20242c;
+  --color-muted: #676d79;
+
+  --shadow-elevated: 0 24px 60px -14px rgb(0 0 0 / 0.55);
+  --shadow-soft: 0 1px 2px rgb(0 0 0 / 0.3);
+}
+
+* {
+  border-color: var(--color-line);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-paper);
+  color: var(--color-ink);
+}
+
+::selection {
+  background: #f0cd9c;
+  color: #14161b;
+}
+
+html.dark ::selection {
+  background: #6b4c28;
+  color: #e9eaee;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border-radius: 8px;
+  border: 2px solid var(--color-paper);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent-b);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   The one deliberate motion moment: content rises into place on load/mode
+   switch. Everything else (hover, spinners, bar fills) is a direct response
+   to a state change, not decoration.
+--------------------------------------------------------------------------- */
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-rise {
+  animation: rise-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes pop-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.animate-pop {
+  animation: pop-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-modal {
+  animation: modal-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-track) 25%,
+    color-mix(in srgb, var(--color-track) 50%, var(--color-panel)) 37%,
+    var(--color-track) 63%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
 }
