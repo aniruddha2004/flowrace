@@ -51,6 +51,22 @@ function migrate(d: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_sessions_created ON sessions(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_taxonomy_type ON taxonomy_options(taxonomy_type, sort_order);
+    CREATE TABLE IF NOT EXISTS models (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      adapter_type TEXT NOT NULL CHECK (adapter_type IN ('llm_chat', 'system_one', 'custom_http')),
+      api_config_json TEXT NOT NULL,
+      pricing_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      input_schema_json TEXT NOT NULL,
+      output_schema_json TEXT NOT NULL,
+      persona_context TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 }
 

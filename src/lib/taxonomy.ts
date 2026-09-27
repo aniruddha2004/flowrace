@@ -1,4 +1,5 @@
 import { getDb, seed } from "./db";
+import { seedPlatform } from "./projects";
 
 // ---------------------------------------------------------------------------
 // Taxonomy — dynamic category/priority/route_to_team options loaded from SQLite.
@@ -37,6 +38,7 @@ export interface AppConfig {
 }
 
 seed();
+seedPlatform();
 
 export function getTaxonomy(): Taxonomy {
   const d = getDb();
