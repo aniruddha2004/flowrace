@@ -2,7 +2,7 @@ import type { TicketAnalysis } from "./schema";
 
 // NDJSON stream contract for POST /api/race — one JSON object per line.
 
-export type FlowId = "A" | "B";
+export type FlowId = "A" | "B" | "C";
 export type StepId = "classification" | "reply";
 
 export interface StepMetrics {

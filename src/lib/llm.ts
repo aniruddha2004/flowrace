@@ -438,7 +438,7 @@ export async function draftReply(
 }
 
 // ---------------------------------------------------------------------------
-// Reply-only drafter used by Flow B: the LLM is handed Jev's decisions and is
+// Reply-only drafter used by Flows B/C: the LLM is handed classifier decisions and is
 // explicitly forbidden from re-deriving them.
 // ----------------------------------------------------------------------------
 

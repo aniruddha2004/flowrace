@@ -1,5 +1,6 @@
 import { encodeEvent, type FlowId, type RaceEvent, type StepId } from "@/lib/events";
 import { JevAuthError, JevError, classifyWithJev } from "@/lib/jev";
+import { GlinerError, classifyWithGliner } from "@/lib/gliner";
 import {
   LLMError,
   LLMParseError,
@@ -14,7 +15,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // ---------------------------------------------------------------------------
-// POST /api/race — streams NDJSON events while running both flows concurrently.
+// POST /api/race — streams NDJSON events while running all flows concurrently.
 // Errors inside one flow are emitted as flow_error events (data on the wire)
 // and never crash the route or the other flow.
 // ---------------------------------------------------------------------------
@@ -22,6 +23,7 @@ export const dynamic = "force-dynamic";
 function errorCode(err: unknown): string {
   if (err instanceof JevAuthError) return "jev_auth";
   if (err instanceof JevError) return "jev_http";
+  if (err instanceof GlinerError) return "gliner_local";
   if (err instanceof LLMParseError) return "llm_parse";
   if (err instanceof LLMError) return "llm_http";
   return "internal";
@@ -264,7 +266,71 @@ export async function POST(request: Request): Promise<Response> {
       flowResults[flow] = result as FlowResult;
     }
 
-    await Promise.allSettled([runFlowA(), runFlowB()]);
+    async function runFlowC(): Promise<void> {
+      const flowStart = performance.now();
+      const flow: FlowId = "C";
+      const step: StepId = "classification";
+      const result: Partial<FlowResult> = {};
+      stepStart(flow, step);
+      try {
+        const t0 = performance.now();
+        const cls = await classifyWithGliner(ticket, taxonomy, settings);
+        result.analysis = cls.analysis;
+        result.classificationMs = Math.round(performance.now() - t0);
+        result.classificationMetrics = {
+          inputTokens: cls.inputTokens,
+          outputTokens: cls.outputTokens,
+          costUsd: cls.costUsd,
+          parseErrors: cls.parseErrors,
+        };
+        emit({
+          type: "step_done",
+          flow,
+          step,
+          ms: result.classificationMs,
+          data: cls.analysis,
+          metrics: result.classificationMetrics,
+        });
+
+        const replyStep: StepId = "reply";
+        stepStart(flow, replyStep);
+        try {
+          const r0 = performance.now();
+          const rep = await draftReplyOnly(ticket, cls.analysis, settings);
+          result.reply = rep.reply;
+          result.replyMs = Math.round(performance.now() - r0);
+          result.replyMetrics = {
+            inputTokens: rep.inputTokens,
+            outputTokens: rep.outputTokens,
+            costUsd: rep.costUsd,
+            parseErrors: rep.parseErrors,
+          };
+          emit({
+            type: "step_done",
+            flow,
+            step: replyStep,
+            ms: result.replyMs,
+            reply: rep.reply,
+            metrics: result.replyMetrics,
+          });
+          const totals: FlowTotals = { inputTokens: 0, outputTokens: 0, costUsd: 0, parseErrors: 0 };
+          addStep(totals, cls);
+          addStep(totals, rep);
+          result.totalMs = Math.round(performance.now() - flowStart);
+          result.totals = totals;
+          emit({ type: "flow_done", flow, totalMs: result.totalMs, totals });
+        } catch (err) {
+          result.error = errorMessage(err);
+          failFlow(flow, replyStep, err);
+        }
+      } catch (err) {
+        result.error = errorMessage(err);
+        failFlow(flow, step, err);
+      }
+      flowResults[flow] = result as FlowResult;
+    }
+
+    await Promise.allSettled([runFlowA(), runFlowB(), runFlowC()]);
 
     const label = text.slice(0, 50).replace(/\s+/g, " ").trim();
     try {
