@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
-import { COMPARE_FIELDS, fieldsAgree } from "@/lib/compare";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { compareFields, fieldAgree } from "@/lib/compare";
 import type { RaceEvent, StepMetrics } from "@/lib/events";
 import { emptyFlowState, flowProgress, type FlowState } from "@/lib/race-state";
-import type { TicketAnalysis } from "@/lib/schema";
+import type { FlowAnalysis } from "@/lib/schema";
+import type { Project } from "@/lib/projects";
 import type { SessionFull } from "@/lib/sessions";
 
 import { ComparisonStrip } from "@/components/ComparisonStrip";
@@ -18,7 +19,7 @@ import { SessionSidebar } from "@/components/SessionSidebar";
 interface CompletedFlow {
   totalMs: number;
   totals: StepMetrics;
-  analysis: TicketAnalysis;
+  analysis: FlowAnalysis;
 }
 
 // Header race track — both flows' live progress made literal.
@@ -81,6 +82,7 @@ function AppShell({ children, onOpenSettings, trackFlowA, trackFlowB }: AppShell
 
 export default function Home() {
   const [viewingSession, setViewingSession] = useState<SessionFull | null>(null);
+  const [viewingSchema, setViewingSchema] = useState<import("@/lib/projects").OutputSchema | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [singleText, setSingleText] = useState("");
@@ -92,11 +94,30 @@ export default function Home() {
   const completedRef = useRef<{ A?: CompletedFlow; B?: CompletedFlow }>({});
   const [historyVersion, setHistoryVersion] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [project, setProject] = useState<Project | null>(null);
+
+  const loadProject = useCallback(async (id?: string) => {
+    const res = await fetch(id ? `/api/projects/${id}` : "/api/projects").then((r) => r.json());
+    return (res.project ?? res.projects?.[0]) as Project | undefined;
+  }, []);
+
+  const projectIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (projectIdRef.current) return;
+    projectIdRef.current = "pending";
+    void loadProject().then((p) => {
+      if (p) {
+        projectIdRef.current = p.id;
+        setProject(p);
+      } else projectIdRef.current = null;
+    });
+  }, [loadProject]);
 
   // Scoreboard is fully server-derived from persisted sessions — the client
   // never tallies locally, so counts can never drift after a reload.
-  const refreshScoreboard = useCallback(() => {
-    fetch("/api/scoreboard")
+  const refreshScoreboard = useCallback((projectId?: string) => {
+    const q = projectId ? `?project=${encodeURIComponent(projectId)}` : "";
+    fetch(`/api/scoreboard${q}`)
       .then((res) => res.json())
       .then((data: ScoreboardData) => {
         setScoreboard(data);
@@ -185,7 +206,7 @@ export default function Home() {
           setFlow((prev) => ({
             ...prev,
             reply: { status: "done", ms: event.ms },
-            replyText: event.reply,
+            freeText: event.freeText,
             replyMetrics: event.metrics,
           }));
         }
@@ -212,11 +233,11 @@ export default function Home() {
       }
       case "run_done": {
         setSingleRunning(false);
-        void refreshScoreboard();
+        void refreshScoreboard(project?.id);
         break;
       }
     }
-  }, [refreshScoreboard]);
+  }, [refreshScoreboard, project?.id]);
 
   const runSingleRace = useCallback(async () => {
     if (singleRunning || !singleText.trim()) return;
@@ -230,14 +251,14 @@ export default function Home() {
     try {
       await readStream<RaceEvent>(
         "/api/race",
-        { action: "run", text: singleText.trim() },
+        { action: "run", text: singleText.trim(), projectId: project?.id },
         applyRaceEvent,
       );
     } catch (err) {
       setBannerError(err instanceof Error ? err.message : String(err));
       setSingleRunning(false);
     }
-  }, [singleRunning, singleText, applyRaceEvent, readStream]);
+  }, [singleRunning, singleText, applyRaceEvent, readStream, project?.id]);
 
   const loadSession = useCallback((session: SessionFull) => {
     if (session.type !== "single") return;
@@ -245,9 +266,10 @@ export default function Home() {
     setBannerError(null);
     setSidebarOpen(false);
     const result = session.result as {
+      schemaVersion?: number;
       flows?: Partial<Record<"A" | "B", {
-        analysis?: TicketAnalysis;
-        reply?: string;
+        analysis?: FlowAnalysis;
+        freeText?: Record<string, string>;
         totalMs?: number;
         totals?: StepMetrics;
         classificationMetrics?: StepMetrics;
@@ -263,12 +285,12 @@ export default function Home() {
       classification: f.analysis
         ? { status: "done", ms: f.classificationMs ?? f.totalMs }
         : { status: "idle" },
-      reply: f.reply
+      reply: Object.keys(f.freeText ?? {}).length > 0 || f.replyMs
         ? { status: "done", ms: f.replyMs ?? f.totalMs }
         : { status: "idle" },
       analysis: f.analysis,
       classificationMetrics: f.classificationMetrics,
-      replyText: f.reply,
+      freeText: f.freeText ?? f.analysis?.freeText ?? {},
       replyMetrics: f.replyMetrics,
       totalMs: f.totalMs,
       totals: f.totals,
@@ -276,17 +298,22 @@ export default function Home() {
     });
     setFlowA(hydrate(a));
     setFlowB(hydrate(b));
-  }, []);
+    setViewingSchema(Array.isArray(session.schemaSnapshot) ? session.schemaSnapshot : null);
+    if (session.projectId) void loadProject(session.projectId);
+  }, [loadProject]);
 
+  const activeSchema = viewingSchema ?? project?.outputSchema ?? [];
+  const cmpFields = compareFields(activeSchema);
   const agreeMap: Record<string, boolean> | null =
     flowA.analysis && flowB.analysis
       ? Object.fromEntries(
-          COMPARE_FIELDS.map((f) => [f, fieldsAgree(flowA.analysis!, flowB.analysis!, f)]),
+          cmpFields.map((f) => [f.key, fieldAgree(f, flowA.analysis!, flowB.analysis!)]),
         )
       : null;
 
   const resetLiveView = useCallback((clearText: boolean) => {
     setViewingSession(null);
+    setViewingSchema(null);
     setBannerError(null);
     completedRef.current = {};
     setFlowA(emptyFlowState());
@@ -342,8 +369,10 @@ export default function Home() {
               <FlowColumn
                 accent="a"
                 title="Flow A — LLM tool-call"
-                subtitle="kimi-k3 classifies via forced submit_ticket_analysis tool-call (zod-validated, retried), then drafts the reply."
+                subtitle="kimi-k3 classifies via forced submit_analysis tool-call (zod-validated, retried), then drafts the reply."
                 state={flowA}
+                schema={viewingSchema ?? activeSchema}
+                project={project}
                 fieldsAgree={agreeMap}
               />
               <FlowColumn
@@ -351,11 +380,17 @@ export default function Home() {
                 title="Flow B — Jev + LLM hybrid"
                 subtitle="Jev (TypeSafe System One) classifies with rubric questions; the LLM only drafts the reply from those decisions."
                 state={flowB}
+                schema={viewingSchema ?? activeSchema}
+                project={project}
                 fieldsAgree={agreeMap}
               />
             </div>
             <div className="mt-6">
-              <ComparisonStrip flowA={flowA} flowB={flowB} />
+              <ComparisonStrip
+                flowA={flowA}
+                flowB={flowB}
+                fields={compareFields(viewingSchema ?? activeSchema)}
+              />
             </div>
           </div>
         </div>
@@ -402,13 +437,15 @@ export default function Home() {
           )}
 
           <div className="space-y-6">
-            <InputCard text={singleText} running={singleRunning} onTextChange={setSingleText} onRun={runSingleRace} />
+            <InputCard text={singleText} running={singleRunning} onTextChange={setSingleText} onRun={runSingleRace} inputLabel={project?.inputLabel} />
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               <FlowColumn
                 accent="a"
                 title="Flow A — LLM tool-call"
-                subtitle="kimi-k3 classifies via forced submit_ticket_analysis tool-call (zod-validated, retried), then drafts the reply."
+                subtitle="kimi-k3 classifies via forced submit_analysis tool-call (zod-validated, retried), then drafts the reply."
                 state={flowA}
+                schema={activeSchema}
+                project={project}
                 fieldsAgree={agreeMap}
               />
               <FlowColumn
@@ -416,10 +453,12 @@ export default function Home() {
                 title="Flow B — Jev + LLM hybrid"
                 subtitle="Jev (TypeSafe System One) classifies with rubric questions; the LLM only drafts the reply from those decisions."
                 state={flowB}
+                schema={activeSchema}
+                project={project}
                 fieldsAgree={agreeMap}
               />
             </div>
-            <ComparisonStrip flowA={flowA} flowB={flowB} />
+            <ComparisonStrip flowA={flowA} flowB={flowB} fields={cmpFields} />
             <Scoreboard data={scoreboard} />
           </div>
 

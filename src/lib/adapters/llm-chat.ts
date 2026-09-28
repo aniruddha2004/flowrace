@@ -88,6 +88,8 @@ function propertyFor(spec: QuestionSpec): Record<string, unknown> {
         maximum: spec.range?.max,
         description: spec.instructions,
       };
+    case "boolean":
+      return { type: "boolean", description: spec.instructions };
     default:
       return { type: "string", description: spec.instructions };
   }
@@ -102,6 +104,8 @@ function zodFor(spec: QuestionSpec): z.ZodTypeAny {
         .number()
         .min(spec.range?.min ?? Number.NEGATIVE_INFINITY)
         .max(spec.range?.max ?? Number.POSITIVE_INFINITY);
+    case "boolean":
+      return z.boolean();
     default:
       return z.string().min(1);
   }

@@ -1,20 +1,23 @@
 import { encodeEvent, type FlowId, type RaceEvent, type StepId } from "@/lib/events";
 import { LLMError, LLMParseError, type LlmChatAdapter } from "@/lib/adapters/llm-chat";
 import { JevAuthError, JevError, type SystemOneAdapter } from "@/lib/adapters/system-one";
-import { classifyTicket, draftReply, draftReplyOnly, type TriageSettings } from "@/lib/flows/llmTriage";
+import { decide, generate, generateFrom, type FlowSettings, type GenerateResult } from "@/lib/flows/llmTriage";
 import { classifyWithJev } from "@/lib/flows/jevTriage";
-import { getDefaultProject, taxonomyFromProject } from "@/lib/projects";
+import { freeTextFields } from "@/lib/flows/buildQuestions";
+import { getDefaultProject, getProject, type Project } from "@/lib/projects";
 import { getAdapter } from "@/lib/registry";
 import { saveSession } from "@/lib/sessions";
 import { getSystemPrompt } from "@/lib/settings";
+import type { StepMetrics } from "@/lib/events";
+import type { FlowAnalysis } from "@/lib/schema";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // ---------------------------------------------------------------------------
-// POST /api/race — streams NDJSON events while running both flows concurrently.
-// Errors inside one flow are emitted as flow_error events (data on the wire)
-// and never crash the route or the other flow.
+// POST /api/race — streams NDJSON events while running both flows concurrently
+// against a project's output schema. Field set is fully schema-driven; the two
+// flows are the only hardcoded orchestration (llm-only vs jev+llm generative).
 // ---------------------------------------------------------------------------
 
 function errorCode(err: unknown): string {
@@ -36,26 +39,24 @@ interface FlowTotals {
   parseErrors: number;
 }
 
-function addStep(
-  totals: FlowTotals,
-  step: {
-    inputTokens: number;
-    outputTokens: number;
-    costUsd: number;
-    parseErrors: number;
-  },
-): void {
-  totals.inputTokens += step.inputTokens;
-  totals.outputTokens += step.outputTokens;
-  totals.costUsd += step.costUsd;
-  totals.parseErrors += step.parseErrors;
+function emptyTotals(): FlowTotals {
+  return { inputTokens: 0, outputTokens: 0, costUsd: 0, parseErrors: 0 };
+}
+
+function addMetrics(totals: FlowTotals, m: StepMetrics): void {
+  totals.inputTokens += m.inputTokens;
+  totals.outputTokens += m.outputTokens;
+  totals.costUsd += m.costUsd;
+  totals.parseErrors += m.parseErrors;
 }
 
 export async function POST(request: Request): Promise<Response> {
   let text = "";
+  let projectId: string | null = null;
   try {
-    const body = (await request.json()) as { text?: unknown };
+    const body = (await request.json()) as { text?: unknown; projectId?: unknown };
     text = typeof body.text === "string" ? body.text.trim() : "";
+    projectId = typeof body.projectId === "string" ? body.projectId : null;
   } catch {
     return Response.json({ error: "Request body must be JSON." }, { status: 400 });
   }
@@ -69,23 +70,20 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  const encoder = new TextEncoder();
-  const ticket = text;
-
-  const project = getDefaultProject();
+  const project: Project | null = projectId ? getProject(projectId) : getDefaultProject();
+  if (!project) {
+    return Response.json({ error: `Project "${projectId}" not found.` }, { status: 404 });
+  }
   const schema = project.outputSchema;
-  const taxonomy = taxonomyFromProject(project);
-  const settings: TriageSettings = {
-    systemPrompt: getSystemPrompt(),
-    businessContext: project.personaContext,
-  };
+  const settings: FlowSettings = { systemPrompt: getSystemPrompt(), project };
+
   const adapterA = getAdapter("kimi-k3") as LlmChatAdapter;
   const adapterB = getAdapter("jev") as SystemOneAdapter;
-  const adapterReply = adapterA;
+  const writer = adapterA;
 
   interface FlowResult {
-    analysis: import("@/lib/schema").TicketAnalysis;
-    reply: string;
+    analysis: FlowAnalysis;
+    freeText: Record<string, string>;
     totalMs: number;
     totals: FlowTotals;
     classificationMetrics?: FlowTotals;
@@ -99,13 +97,13 @@ export async function POST(request: Request): Promise<Response> {
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       let closed = false;
+      const encoder = new TextEncoder();
       const emit = (event: RaceEvent) => {
         if (closed) return;
         try {
           controller.enqueue(encoder.encode(encodeEvent(event)));
         } catch {
-          // Client disconnected mid-race — mark the stream dead so every later
-          // emit no-ops, but let both flows finish so the session is saved whole.
+          // Client disconnected — flows keep running so the session saves whole.
           closed = true;
         }
       };
@@ -114,23 +112,22 @@ export async function POST(request: Request): Promise<Response> {
         emit({ type: "step_start", flow, step, at: Date.now() });
 
       const failFlow = (flow: FlowId, step: StepId, err: unknown) =>
-        emit({
-          type: "flow_error",
-          flow,
-          step,
-          code: errorCode(err),
-          message: errorMessage(err),
-        });
+        emit({ type: "flow_error", flow, step, code: errorCode(err), message: errorMessage(err) });
 
-      async function runFlowA(): Promise<void> {
+      async function runFlow(flow: FlowId, clsDecide: () => Promise<{
+        analysis: FlowAnalysis;
+        inputTokens: number;
+        outputTokens: number;
+        costUsd: number;
+        parseErrors: number;
+      }>): Promise<void> {
         const flowStart = performance.now();
-        const flow: FlowId = "A";
         const step: StepId = "classification";
-        const result: Partial<FlowResult> = {};
+        const result: Partial<FlowResult> = { freeText: {} };
         stepStart(flow, step);
         try {
           const t0 = performance.now();
-          const cls = await classifyTicket(ticket, schema, settings, adapterA);
+          const cls = await clsDecide();
           result.analysis = cls.analysis;
           result.classificationMs = Math.round(performance.now() - t0);
           result.classificationMetrics = {
@@ -152,139 +149,66 @@ export async function POST(request: Request): Promise<Response> {
           stepStart(flow, replyStep);
           try {
             const r0 = performance.now();
-          const rep = await draftReply(ticket, cls.analysis, settings, adapterA);
-          result.reply = rep.reply;
-          result.replyMs = Math.round(performance.now() - r0);
-          result.replyMetrics = {
-            inputTokens: rep.inputTokens,
-            outputTokens: rep.outputTokens,
-            costUsd: rep.costUsd,
-            parseErrors: rep.parseErrors,
-          };
-          emit({
-            type: "step_done",
-            flow,
-            step: replyStep,
-            ms: result.replyMs,
-            reply: rep.reply,
-            metrics: result.replyMetrics,
-          });
-          const totals: FlowTotals = {
-            inputTokens: 0,
-            outputTokens: 0,
-            costUsd: 0,
-            parseErrors: 0,
-          };
-          addStep(totals, cls);
-          addStep(totals, rep);
-          result.totalMs = Math.round(performance.now() - flowStart);
-          result.totals = totals;
-          emit({
-            type: "flow_done",
-            flow,
-            totalMs: result.totalMs,
-            totals,
-          });
+            const genResults: GenerateResult[] = [];
+            for (const f of freeTextFields(schema)) {
+              genResults.push(
+                flow === "A"
+                  ? await generate(text, f.key, cls.analysis, settings, schema, writer)
+                  : await generateFrom(text, f.key, cls.analysis, settings, schema, writer),
+              );
+            }
+            const repMetrics: FlowTotals = emptyTotals();
+            for (const g of genResults) {
+              addMetrics(repMetrics, g);
+              result.freeText![g.fieldKey] = g.text;
+            }
+            result.replyMs = Math.round(performance.now() - r0);
+            result.replyMetrics = repMetrics;
+            if (result.analysis) result.analysis.freeText = result.freeText!;
+            emit({
+              type: "step_done",
+              flow,
+              step: replyStep,
+              ms: result.replyMs,
+              freeText: result.freeText!,
+              metrics: repMetrics,
+            });
+            const totals = emptyTotals();
+            addMetrics(totals, result.classificationMetrics);
+            addMetrics(totals, repMetrics);
+            result.totalMs = Math.round(performance.now() - flowStart);
+            result.totals = totals;
+            emit({ type: "flow_done", flow, totalMs: result.totalMs, totals });
+          } catch (err) {
+            result.error = errorMessage(err);
+            failFlow(flow, replyStep, err);
+          }
         } catch (err) {
           result.error = errorMessage(err);
-          failFlow(flow, replyStep, err);
+          failFlow(flow, step, err);
         }
-      } catch (err) {
-        result.error = errorMessage(err);
-        failFlow(flow, step, err);
+        flowResults[flow] = result as FlowResult;
       }
-      flowResults[flow] = result as FlowResult;
-    }
 
-    async function runFlowB(): Promise<void> {
-      const flowStart = performance.now();
-      const flow: FlowId = "B";
-      const step: StepId = "classification";
-      const result: Partial<FlowResult> = {};
-      stepStart(flow, step);
-        try {
-          const t0 = performance.now();
-          const cls = await classifyWithJev(ticket, schema, settings, adapterB);
-          result.analysis = cls.analysis;
-          result.classificationMs = Math.round(performance.now() - t0);
-          result.classificationMetrics = {
-            inputTokens: cls.inputTokens,
-            outputTokens: cls.outputTokens,
-            costUsd: cls.costUsd,
-            parseErrors: cls.parseErrors,
-          };
-          emit({
-            type: "step_done",
-            flow,
-            step,
-            ms: result.classificationMs,
-            data: cls.analysis,
-            metrics: result.classificationMetrics,
-          });
+      const aDecide = () => decide(text, schema, settings, adapterA);
+      const bDecide = () => classifyWithJev(text, schema, settings, adapterB);
 
-          const replyStep: StepId = "reply";
-          stepStart(flow, replyStep);
-          try {
-            const r0 = performance.now();
-          const rep = await draftReplyOnly(ticket, cls.analysis, settings, adapterReply);
-          result.reply = rep.reply;
-          result.replyMs = Math.round(performance.now() - r0);
-          result.replyMetrics = {
-            inputTokens: rep.inputTokens,
-            outputTokens: rep.outputTokens,
-            costUsd: rep.costUsd,
-            parseErrors: rep.parseErrors,
-          };
-          emit({
-            type: "step_done",
-            flow,
-            step: replyStep,
-            ms: result.replyMs,
-            reply: rep.reply,
-            metrics: result.replyMetrics,
-          });
-          const totals: FlowTotals = {
-            inputTokens: 0,
-            outputTokens: 0,
-            costUsd: 0,
-            parseErrors: 0,
-          };
-          addStep(totals, cls);
-          addStep(totals, rep);
-          result.totalMs = Math.round(performance.now() - flowStart);
-          result.totals = totals;
-          emit({
-            type: "flow_done",
-            flow,
-            totalMs: result.totalMs,
-            totals,
-          });
-        } catch (err) {
-          result.error = errorMessage(err);
-          failFlow(flow, replyStep, err);
-        }
-      } catch (err) {
-        result.error = errorMessage(err);
-        failFlow(flow, step, err);
+      await Promise.allSettled([runFlow("A", aDecide), runFlow("B", bDecide)]);
+
+      const label = text.slice(0, 50).replace(/\s+/g, " ").trim();
+      try {
+        saveSession({
+          type: "single",
+          label,
+          projectId: project.id,
+          input: { text },
+          result: { flows: flowResults },
+          schemaSnapshot: schema,
+        });
+      } catch {
+        // Session persistence failure must not break a race response.
       }
-      flowResults[flow] = result as FlowResult;
-    }
-
-    await Promise.allSettled([runFlowA(), runFlowB()]);
-
-    const label = text.slice(0, 50).replace(/\s+/g, " ").trim();
-    try {
-      saveSession({
-        type: "single",
-        label,
-        input: { text },
-        result: { flows: flowResults },
-        taxonomySnapshot: taxonomy,
-      });
-    } catch {
-      // Session persistence failure must not break a race response.
-    }
-    emit({ type: "run_done" });
+      emit({ type: "run_done" });
       closed = true;
       controller.close();
     },

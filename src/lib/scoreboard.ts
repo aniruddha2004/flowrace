@@ -6,11 +6,11 @@ import {
   type Winner,
 } from "./compare";
 import { getDb } from "./db";
-import type { TicketAnalysis } from "./schema";
+import { getProject } from "./projects";
+import { normalizeAnalysis } from "./schema";
 
-// Server-side scoreboard: derived entirely from persisted single-mode
-// sessions so every tally row sums to `runs`, matching what a fresh page
-// load actually has in the database.
+// Server-side scoreboard: derived from persisted single-mode sessions of ONE
+// project so every tally row sums to runs for that project only.
 
 export interface MetricTally {
   a: number;
@@ -19,6 +19,7 @@ export interface MetricTally {
 }
 
 export interface ScoreboardPayload {
+  projectId: string;
   runs: number;
   latency: MetricTally;
   cost: MetricTally;
@@ -35,7 +36,7 @@ interface StoredTotals {
 }
 
 interface StoredFlow {
-  analysis?: TicketAnalysis;
+  analysis?: unknown;
   totalMs?: number;
   totals?: StoredTotals;
 }
@@ -46,12 +47,13 @@ function tally(t: MetricTally, w: Winner): MetricTally {
   return { ...t, tie: t.tie + 1 };
 }
 
-export function computeScoreboard(): ScoreboardPayload {
+export function computeScoreboard(projectId: string): ScoreboardPayload {
   const rows = getDb()
-    .prepare(`SELECT type, result FROM sessions WHERE type = 'single'`)
-    .all() as { type: string; result: string }[];
+    .prepare(`SELECT result FROM sessions WHERE type = 'single' AND project_id = ?`)
+    .all(projectId) as { result: string }[];
 
   const payload: ScoreboardPayload = {
+    projectId,
     runs: 0,
     latency: { a: 0, tie: 0, b: 0 },
     cost: { a: 0, tie: 0, b: 0 },
@@ -59,6 +61,8 @@ export function computeScoreboard(): ScoreboardPayload {
     agreementSum: 0,
     agreementCount: 0,
   };
+
+  const schema = getProject(projectId)?.outputSchema ?? [];
 
   for (const r of rows) {
     let flows: { A?: StoredFlow; B?: StoredFlow };
@@ -69,8 +73,6 @@ export function computeScoreboard(): ScoreboardPayload {
     }
     const a = flows.A;
     const b = flows.B;
-    // Skip incomplete runs (a flow errored before producing totals) so every
-    // tally row sums to runs.
     if (
       !a?.totalMs ||
       !b?.totalMs ||
@@ -89,7 +91,11 @@ export function computeScoreboard(): ScoreboardPayload {
       parseErrorWinner(a.totals.parseErrors ?? 0, b.totals.parseErrors ?? 0),
     );
     if (a.analysis && b.analysis) {
-      payload.agreementSum += agreementRatio(a.analysis, b.analysis);
+      payload.agreementSum += agreementRatio(
+        schema,
+        normalizeAnalysis(a.analysis),
+        normalizeAnalysis(b.analysis),
+      );
       payload.agreementCount += 1;
     }
   }

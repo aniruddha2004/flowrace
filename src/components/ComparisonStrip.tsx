@@ -1,13 +1,15 @@
 "use client";
 
-import { COMPARE_FIELDS, costWinner, fieldsAgree, latencyWinner } from "@/lib/compare";
+import { costWinner, fieldAgree, latencyWinner } from "@/lib/compare";
 import { fmtCost, fmtMs } from "@/lib/format";
+import type { OutputField } from "@/lib/projects";
 import type { FlowState } from "@/lib/race-state";
-import { FIELD_LABELS } from "@/lib/schema";
+import { formatValue } from "./FieldRow";
 
 interface ComparisonStripProps {
   flowA: FlowState;
   flowB: FlowState;
+  fields: OutputField[];
 }
 
 interface RowData {
@@ -17,17 +19,17 @@ interface RowData {
   latencyWin: boolean;
   cost: string;
   costWin: boolean;
-  fields: { field: (typeof COMPARE_FIELDS)[number]; value: string; agree: boolean }[];
+  fields: { key: string; label: string; value: string; agree: boolean }[];
 }
 
-function computeComparison(filteredFlowA: FlowState, flowB: FlowState): RowData[] | null {
-  if (!filteredFlowA.totals || !flowB.totals || !filteredFlowA.analysis || !flowB.analysis) {
+function computeComparison(flowA: FlowState, flowB: FlowState, fields: OutputField[]): RowData[] | null {
+  if (!flowA.totals || !flowB.totals || !flowA.analysis || !flowB.analysis) {
     return null;
   }
-  return ([filteredFlowA as FlowState, flowB] as const).map((f, i) => {
-    const latW = latencyWinner(filteredFlowA.totalMs ?? 0, flowB.totalMs ?? 0);
-    const costW = costWinner(filteredFlowA.totals!.costUsd, flowB.totals!.costUsd);
-    const other = i === 0 ? flowB.analysis! : filteredFlowA.analysis!;
+  return ([flowA, flowB] as const).map((f, i) => {
+    const latW = latencyWinner(flowA.totalMs ?? 0, flowB.totalMs ?? 0);
+    const costW = costWinner(flowA.totals!.costUsd, flowB.totals!.costUsd);
+    const other = i === 0 ? flowB.analysis! : flowA.analysis!;
     return {
       label: `Flow ${i === 0 ? "A" : "B"}`,
       dot: i === 0 ? "bg-accent-a" : "bg-accent-b",
@@ -35,13 +37,11 @@ function computeComparison(filteredFlowA: FlowState, flowB: FlowState): RowData[
       latencyWin: (i === 0) === (latW === "A") && latW !== "tie",
       cost: fmtCost(f.totals!.costUsd),
       costWin: (i === 0) === (costW === "A") && costW !== "tie",
-      fields: COMPARE_FIELDS.map((field) => ({
-        field,
-        value:
-          field === "sentiment"
-            ? f.analysis!.sentiment.toFixed(2)
-            : String(f.analysis![field as "category"]),
-        agree: fieldsAgree(f.analysis!, other, field),
+      fields: fields.map((field) => ({
+        key: field.key,
+        label: field.label,
+        value: formatValue(field, f.analysis!.values[field.key]?.value),
+        agree: fieldAgree(field, f.analysis!, other),
       })),
     };
   });
@@ -58,13 +58,12 @@ function WinnerChip() {
   );
 }
 
-export function ComparisonStrip({ flowA, flowB }: ComparisonStripProps) {
-  const rows = computeComparison(flowA, flowB);
+export function ComparisonStrip({ flowA, flowB, fields }: ComparisonStripProps) {
+  const rows = computeComparison(flowA, flowB, fields);
   if (!rows) return null;
 
   const tie = latencyWinner(flowA.totalMs ?? 0, flowB.totalMs ?? 0) === "tie"
     && costWinner(flowA.totals!.costUsd, flowB.totals!.costUsd) === "tie";
-  const metricCols = 2 + COMPARE_FIELDS.length;
 
   return (
     <div className="animate-rise">
@@ -74,7 +73,7 @@ export function ComparisonStrip({ flowA, flowB }: ComparisonStripProps) {
           <thead>
             <tr className="border-b border-line font-mono text-[10px] uppercase tracking-wide text-muted">
               <th className="pb-2 pr-4 font-medium" />
-              {["Latency", "Cost", ...COMPARE_FIELDS.map((f) => FIELD_LABELS[f])].map((h) => (
+              {["Latency", "Cost", ...fields.map((f) => f.label)].map((h) => (
                 <th key={h} className="whitespace-nowrap pb-2 pr-4 font-medium">{h}</th>
               ))}
             </tr>
@@ -92,15 +91,15 @@ export function ComparisonStrip({ flowA, flowB }: ComparisonStripProps) {
                 <td className="py-2 pr-4 font-mono text-xs tabular-nums text-ink">
                   {r.cost}{r.costWin && <WinnerChip />}
                 </td>
-                {r.fields.map(({ field, value, agree }) => (
-                  <td key={field} className="py-2 pr-4 text-xs">
+                {r.fields.map(({ key, label, value, agree }) => (
+                  <td key={key} className="py-2 pr-4 text-xs">
                     <span
                       className={`inline-flex max-w-full items-center gap-1 truncate rounded-md px-1.5 py-0.5 font-mono text-[11px] ${
                         agree
                           ? "bg-emerald-100/70 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
                           : "bg-rose-100/70 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300"
                       }`}
-                      title={`${FIELD_LABELS[field]}: ${agree ? "flows agree" : "flows differ"} — ${value}`}
+                      title={`${label}: ${agree ? "flows agree" : "flows differ"} — ${value}`}
                     >
                       {value}
                     </span>
@@ -114,7 +113,7 @@ export function ComparisonStrip({ flowA, flowB }: ComparisonStripProps) {
       {!(tie && rows.every((r) => r.fields.every((f) => f.agree))) && (
         <p className="mt-2 text-xs text-muted">
           {tie ? "Latency and cost tied" : `Flow ${latencyWinner(flowA.totalMs ?? 0, flowB.totalMs ?? 0) === "A" ? "A" : "B"} fastest · Flow ${costWinner(flowA.totals!.costUsd, flowB.totals!.costUsd) === "A" ? "A" : "B"} cheapest`}{" "}
-          · {rows[0].fields.filter((f) => f.agree).length}/{metricCols - 2} fields agree.
+          · {rows[0].fields.filter((f) => f.agree).length}/{fields.length} fields agree.
         </p>
       )}
     </div>

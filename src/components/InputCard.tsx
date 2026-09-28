@@ -5,9 +5,10 @@ interface InputCardProps {
   running: boolean;
   onTextChange: (text: string) => void;
   onRun: () => void;
+  inputLabel?: string;
 }
 
-export function InputCard({ text, running, onTextChange, onRun }: InputCardProps) {
+export function InputCard({ text, running, onTextChange, onRun, inputLabel }: InputCardProps) {
   const trimmed = text.trim();
   const canRun = trimmed.length > 0 && !running;
 
@@ -15,7 +16,7 @@ export function InputCard({ text, running, onTextChange, onRun }: InputCardProps
     <section className="rounded-xl border border-line bg-panel p-5 sm:p-6">
       <div className="mb-3 flex items-baseline justify-between">
         <label htmlFor="ticket-input" className="font-display text-sm font-semibold text-ink">
-          Support ticket
+          {inputLabel ?? "Input"}
         </label>
         <span className="font-mono text-xs tabular-nums text-muted">
           {text.length.toLocaleString("en-US")} chars

@@ -1,21 +1,7 @@
 // ---------------------------------------------------------------------------
-// Domain types. Fields (category/priority/route_to_team) are now dynamic
-// string keys from SQLite taxonomy — NOT fixed enum literals. Sentiment stays
-// a fixed continuous number.
-// ---------------------------------------------------------------------------
-
-export interface FieldConfidence {
-  category: number;
-  priority: number;
-  sentiment: number;
-  route_to_team: number;
-}
-
-// ---------------------------------------------------------------------------
-// Transparency layer (additive). Flow A populates `reasoning` (an LLM can
-// narrate prose); Flow B populates `signals` + `signalMismatch` (Jev returns
-// typed, calibrated values only — no prose). Each flow carries exactly one of
-// the two, never both. Older sessions have neither — renderers must guard.
+// Domain types — schema-driven. A project owns an OutputSchema; the engine
+// produces a FlowAnalysis whose values are keyed by the schema's field keys.
+// Nothing in this file may mention specific field keys (category, priority…).
 // ---------------------------------------------------------------------------
 
 export interface FieldSignal {
@@ -23,37 +9,93 @@ export interface FieldSignal {
   confidence: number;
 }
 
-export interface TicketSignals {
-  category: Record<string, FieldSignal>;
-  priority: Record<string, FieldSignal>;
-  route_to_team: Record<string, FieldSignal>;
-  cross_cutting: Record<string, FieldSignal>;
+export const SCHEMA_VERSION = 2;
+
+/** Generic flow output: decision values + generated free text, keyed by
+ * OutputSchema field keys. `signals` maps field key → clue label → signal
+ * (plus the reserved "cross_cutting" field key). */
+export interface FlowAnalysis {
+  schemaVersion: number;
+  values: Record<string, { value: string | number | boolean; confidence: number }>;
+  freeText: Record<string, string>;
+  /** LLM decide steps only — the model's own stated rationale (uncalibrated). */
+  reasoning?: string;
+  /** Jev steps only — per-clue match probabilities from noul questions. */
+  signals?: Record<string, Record<string, FieldSignal>>;
+  /** Jev steps only — true when the winner's evidence is not clearly strongest. */
+  signalMismatch?: Record<string, boolean>;
 }
 
-export interface SignalMismatch {
-  category: boolean;
-  priority: boolean;
-  route_to_team: boolean;
-}
+// ---------------------------------------------------------------------------
+// Legacy shape + normalizer (sessions stored before the schema-driven engine).
+// Old sessions keep their keys; this converts once at load time so renderers
+// only ever see FlowAnalysis.
+// ---------------------------------------------------------------------------
 
-export interface TicketAnalysis {
+export interface LegacyTicketAnalysis {
   category: string;
   priority: string;
-  sentiment: number; // -1 .. 1
+  sentiment: number;
   route_to_team: string;
-  confidence: FieldConfidence;
-  /** Flow A only — the LLM's own stated rationale (prose, uncalibrated). */
+  confidence: {
+    category: number;
+    priority: number;
+    sentiment: number;
+    route_to_team: number;
+  };
   reasoning?: string;
-  /** Flow B only — per-option match probabilities from Jev noul questions. */
-  signals?: TicketSignals;
-  /** Flow B only — true when the winner's signal is within 0.15 of runner-up. */
-  signalMismatch?: SignalMismatch;
+  signals?: {
+    category: Record<string, FieldSignal>;
+    priority: Record<string, FieldSignal>;
+    route_to_team: Record<string, FieldSignal>;
+    cross_cutting: Record<string, FieldSignal>;
+  };
+  signalMismatch?: {
+    category: boolean;
+    priority: boolean;
+    route_to_team: boolean;
+  };
 }
 
-// Human-readable labels used by the UI.
-export const FIELD_LABELS: Record<keyof FieldConfidence, string> = {
-  category: "Category",
-  priority: "Priority",
-  sentiment: "Sentiment",
-  route_to_team: "Route to team",
-};
+function isLegacyAnalysis(a: unknown): a is LegacyTicketAnalysis {
+  return (
+    typeof a === "object" &&
+    a !== null &&
+    !("values" in a) &&
+    "category" in a &&
+    "confidence" in a
+  );
+}
+
+/** Convert any stored/mixed analysis payload to the generic FlowAnalysis. */
+export function normalizeAnalysis(a: unknown): FlowAnalysis {
+  if (typeof a !== "object" || a === null) {
+    return { schemaVersion: SCHEMA_VERSION, values: {}, freeText: {} };
+  }
+  if (!isLegacyAnalysis(a)) {
+    const cur = a as FlowAnalysis;
+    return {
+      ...cur,
+      schemaVersion: cur.schemaVersion ?? SCHEMA_VERSION,
+      values: cur.values ?? {},
+      freeText: cur.freeText ?? {},
+    };
+  }
+  const values: FlowAnalysis["values"] = {};
+  for (const key of ["category", "priority", "sentiment", "route_to_team"] as const) {
+    if (a[key] !== undefined) {
+      values[key] = {
+        value: a[key] as string | number,
+        confidence: a.confidence?.[key] ?? 0,
+      };
+    }
+  }
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    values,
+    freeText: {},
+    reasoning: a.reasoning,
+    signals: a.signals,
+    signalMismatch: a.signalMismatch,
+  };
+}

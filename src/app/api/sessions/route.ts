@@ -4,8 +4,9 @@ import { listSessions, deleteSessions } from "@/lib/sessions";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(): Promise<NextResponse> {
-  return NextResponse.json({ sessions: listSessions() });
+export async function GET(request: Request): Promise<NextResponse> {
+  const projectId = new URL(request.url).searchParams.get("project") ?? undefined;
+  return NextResponse.json({ sessions: listSessions(projectId) });
 }
 
 export async function DELETE(request: Request): Promise<NextResponse> {

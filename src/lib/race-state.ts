@@ -1,5 +1,5 @@
 import type { StepMetrics } from "./events";
-import type { TicketAnalysis } from "./schema";
+import type { FlowAnalysis } from "./schema";
 
 // Client-side per-flow state assembled incrementally from NDJSON events.
 
@@ -20,9 +20,9 @@ export interface FlowErrorInfo {
 export interface FlowState {
   classification: StepState;
   reply: StepState;
-  analysis?: TicketAnalysis;
+  analysis?: FlowAnalysis;
   classificationMetrics?: StepMetrics;
-  replyText?: string;
+  freeText?: Record<string, string>;
   replyMetrics?: StepMetrics;
   totalMs?: number;
   totals?: StepMetrics;
@@ -36,7 +36,6 @@ export function emptyFlowState(): FlowState {
   };
 }
 
-/** 0 → 1 progress used to drive the header race track. */
 export function flowProgress(state: FlowState): number {
   if (state.totals) return 1;
   if (state.reply.status === "running") return 0.66;

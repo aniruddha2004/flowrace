@@ -15,7 +15,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   } catch {
     return NextResponse.json({ error: "Request body must be JSON." }, { status: 400 });
   }
-  const b = body as { id?: unknown; name?: unknown; outputSchema?: unknown; personaContext?: unknown };
+  const b = body as { id?: unknown; name?: unknown; outputSchema?: unknown; personaContext?: unknown; taskDescription?: unknown; inputLabel?: unknown; crossCuttingClues?: unknown };
   if (typeof b.id !== "string" || typeof b.name !== "string" || !Array.isArray(b.outputSchema)) {
     return NextResponse.json(
       { error: "id (string), name (string) and outputSchema (array) are required." },
@@ -27,6 +27,9 @@ export async function POST(request: Request): Promise<NextResponse> {
     name: b.name,
     outputSchema: b.outputSchema as OutputSchema,
     personaContext: typeof b.personaContext === "string" ? b.personaContext : undefined,
+    taskDescription: typeof b.taskDescription === "string" ? b.taskDescription : undefined,
+    inputLabel: typeof b.inputLabel === "string" ? b.inputLabel : undefined,
+    crossCuttingClues: Array.isArray(b.crossCuttingClues) ? (b.crossCuttingClues as never) : undefined,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
   return NextResponse.json({ project: result.project }, { status: 201 });

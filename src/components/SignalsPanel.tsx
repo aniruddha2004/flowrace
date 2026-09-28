@@ -1,24 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import type { SignalMismatch, TicketSignals } from "@/lib/schema";
+import type { OutputField, Project } from "@/lib/projects";
+import type { FieldSignal } from "@/lib/schema";
 import { ACCENT, type Accent } from "./FieldRow";
 
-// Jev's native "why": per-option match probabilities (noul answers), and three
-// fixed cross-cutting probes. Shown collapsed to winner + runner-up per field.
-
-const CROSS_LABELS: Record<string, string> = {
-  multiple_distinct_issues_present: "multiple distinct issues",
-  explicit_deadline_mentioned: "explicit deadline",
-  threatens_to_cancel_or_leave: "threatens to leave",
-};
-
-const PRIORITY_CLUE_LABELS: Record<string, string> = {
-  outage_or_emergency: "live outage / security / financial emergency",
-  blocked_from_work: "blocked from doing their work",
-  strong_frustration: "strong frustration or anger, in their own words",
-  minor_no_pressure: "minor inconvenience, no real time pressure",
-};
+// Jev's native "why": per-clue match probabilities (noul answers), plus the
+// project's cross-cutting probes. Sections come from the project's schema —
+// one per enum field carrying signals, then cross-cutting.
 
 function SignalBar({
   label,
@@ -55,46 +44,53 @@ function SignalBar({
   );
 }
 
+/** Older sessions stored clue keys where newer ones store labels — resolve
+ * display text through the schema's clues, falling back to the stored key. */
+function clueLabelFor(field: OutputField | null, key: string, project: Project | null): string {
+  const lab = field?.clues?.find((c) => c.key === key || c.label === key)?.label;
+  if (lab) return lab;
+  const cross = project?.crossCuttingClues.find((c) => c.key === key || c.label === key)?.label;
+  return cross ?? key;
+}
+
 function FieldSignals({
   field,
-  label,
+  project,
   signals,
   winners,
   mismatch,
 }: {
-  field: "category" | "priority" | "route_to_team";
-  label: string;
-  signals: TicketSignals;
+  field: OutputField;
+  project: Project | null;
+  signals: Record<string, FieldSignal>;
   winners: Record<string, string>;
-  mismatch: SignalMismatch;
+  mismatch: boolean;
 }) {
   const [showAll, setShowAll] = useState(false);
-  const entries = Object.entries(signals[field]);
+  const entries = Object.entries(signals);
   if (entries.length === 0) return null;
   const sorted = [...entries].sort(([, a], [, b]) => b.confidence - a.confidence);
-  const winner = winners[field];
-  // Priority signals are evidence clues (not keyed by option) so the winner
-  // key won't be found there — fall back to the strongest clue.
-  const winnerEntry = entries.find(([k]) => k === winner) ?? sorted[0];
+  const winner = winners[field.key];
+  const pretty = (k: string) => clueLabelFor(field, k, project);
+  const winnerEntry =
+    entries.find(([k]) => k === winner || pretty(k) === pretty(winner)) ?? sorted[0];
   if (!winnerEntry) return null;
   const runnerUp = sorted.find(([k]) => k !== winnerEntry[0]);
-  const rows: [string, { match: boolean; confidence: number }][] = [winnerEntry];
+  const rows: [string, FieldSignal][] = [winnerEntry];
   if (runnerUp) rows.push(runnerUp);
   const hidden = sorted.filter(([k]) => !rows.some(([rk]) => rk === k));
-  const contested = mismatch[field];
-  const pretty = (k: string) => PRIORITY_CLUE_LABELS[k] ?? k;
 
   return (
     <div
       className={`py-2 pl-3 ${
-        contested ? "border-l-[3px] border-amber-500" : "border-l border-line"
+        mismatch ? "border-l-[3px] border-amber-500" : "border-l border-line"
       }`}
     >
       <div className="mb-1 flex flex-wrap items-baseline gap-x-2">
         <span className="font-mono text-[10px] font-semibold uppercase tracking-wide text-ink-soft">
-          {label}
+          {field.label}
         </span>
-        {contested && (
+        {mismatch && (
           <span className="font-mono text-[10px] text-amber-600 dark:text-amber-400">
             closely contested — see runner-up below
           </span>
@@ -124,29 +120,28 @@ export function SignalsPanel({
   winners,
   mismatch,
   accent,
+  fields,
+  project,
 }: {
-  signals: TicketSignals;
+  signals: Record<string, Record<string, FieldSignal>>;
   winners: Record<string, string>;
-  mismatch: SignalMismatch;
+  mismatch: Record<string, boolean>;
   accent: Accent;
+  fields: OutputField[];
+  project: Project | null;
 }) {
-  const cross = Object.entries(signals.cross_cutting);
+  const sections = fields.filter((f) => f.type === "enum" && (signals[f.key] ?? null) !== null);
+  const cross = Object.entries(signals.cross_cutting ?? {});
   return (
     <div className="divide-y divide-line rounded-lg border border-line bg-paper px-4 py-2">
-      {(
-        [
-          ["category", "Category"],
-          ["priority", "Priority"],
-          ["route_to_team", "Route to team"],
-        ] as const
-      ).map(([field, label]) => (
+      {sections.map((field) => (
         <FieldSignals
-          key={field}
+          key={field.key}
           field={field}
-          label={label}
-          signals={signals}
+          project={project}
+          signals={signals[field.key] ?? {}}
           winners={winners}
-          mismatch={mismatch}
+          mismatch={mismatch[field.key] ?? false}
         />
       ))}
       {cross.length > 0 && (
@@ -157,7 +152,7 @@ export function SignalsPanel({
           {cross.map(([key, sig]) => (
             <SignalBar
               key={key}
-              label={CROSS_LABELS[key] ?? key}
+              label={clueLabelFor(null, key, project)}
               confidence={sig.confidence}
               highlight={sig.match}
             />

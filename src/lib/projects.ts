@@ -13,12 +13,37 @@ export interface OutputFieldOption {
   description: string;
 }
 
+/** Diagnostic evidence clue (Jev noul probe). For enum fields: when absent,
+ * clues are derived from option descriptions, exactly as Flow B did before. */
+export interface Clue {
+  key: string;
+  label: string;
+  question: string;
+}
+
 export interface OutputField {
   key: string;
   label: string;
   type: "enum" | "float_range" | "boolean" | "free_text";
   options?: OutputFieldOption[];
   range?: { min: number; max: number };
+  clues?: Clue[];
+  /** Ordinal enum: clue keys in the "winner position implies support" group. */
+  supportClues?: string[];
+  /** Ordinal enum: clue keys in the opposing group (evidence against winner). */
+  opposeClues?: string[];
+  /** Rubric/instruction lead for the system_one decide question. */
+  prompt?: string;
+  /** float_range anchors [low, mid, high] for the llm_chat system listing. */
+  systemHint?: [string, string, string];
+  /** Hint lead for the llm_chat tool field description. */
+  promptHint?: string;
+  /** float_range rubric bands for system_one (len = number of score bands). */
+  scale?: string[];
+  /** free_text: standalone generation instruction (Flow A). */
+  generatePrompt?: string;
+  /** free_text: generation instruction when decisions are authoritative (Flow B). */
+  constrainedPrompt?: string;
 }
 
 export type OutputSchema = OutputField[];
@@ -29,6 +54,11 @@ export interface Project {
   inputSchema: { kind: "text" };
   outputSchema: OutputSchema;
   personaContext: string;
+  /** What the model is doing, in a sentence — replaces hardcoded task phrases. */
+  taskDescription: string;
+  /** Label for the input text area in the UI. */
+  inputLabel: string;
+  crossCuttingClues: Clue[];
   createdAt: string;
 }
 
@@ -38,6 +68,9 @@ function toProject(r: {
   input_schema_json: string;
   output_schema_json: string;
   persona_context: string;
+  task_description: string;
+  input_label: string;
+  cross_cutting_clues_json: string;
   created_at: string;
 }): Project {
   return {
@@ -46,6 +79,9 @@ function toProject(r: {
     inputSchema: JSON.parse(r.input_schema_json) as { kind: "text" },
     outputSchema: JSON.parse(r.output_schema_json) as OutputSchema,
     personaContext: r.persona_context,
+    taskDescription: r.task_description,
+    inputLabel: r.input_label,
+    crossCuttingClues: JSON.parse(r.cross_cutting_clues_json) as Clue[],
     createdAt: r.created_at,
   };
 }
@@ -76,16 +112,31 @@ export function getDefaultProject(): Project {
 
 export function updateProject(
   id: string,
-  patch: Partial<{ name: string; outputSchema: OutputSchema; personaContext: string }>,
+  patch: Partial<{
+    name: string;
+    outputSchema: OutputSchema;
+    personaContext: string;
+    taskDescription: string;
+    inputLabel: string;
+    crossCuttingClues: Clue[];
+  }>,
 ): { ok: true } | { ok: false; error: string } {
   const existing = getProject(id);
   if (!existing) return { ok: false, error: "Project not found." };
   getDb()
-    .prepare("UPDATE projects SET name = ?, output_schema_json = ?, persona_context = ? WHERE id = ?")
+    .prepare(
+      `UPDATE projects
+       SET name = ?, output_schema_json = ?, persona_context = ?,
+           task_description = ?, input_label = ?, cross_cutting_clues_json = ?
+       WHERE id = ?`,
+    )
     .run(
       patch.name ?? existing.name,
       JSON.stringify(patch.outputSchema ?? existing.outputSchema),
       patch.personaContext ?? existing.personaContext,
+      patch.taskDescription ?? existing.taskDescription,
+      patch.inputLabel ?? existing.inputLabel,
+      JSON.stringify(patch.crossCuttingClues ?? existing.crossCuttingClues),
       id,
     );
   return { ok: true };
@@ -104,12 +155,15 @@ export function createProject(input: {
   name: string;
   outputSchema: OutputSchema;
   personaContext?: string;
+  taskDescription?: string;
+  inputLabel?: string;
+  crossCuttingClues?: Clue[];
 }): { ok: true; project: Project } | { ok: false; error: string } {
   try {
     getDb()
       .prepare(
-        `INSERT INTO projects (id, name, input_schema_json, output_schema_json, persona_context)
-         VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO projects (id, name, input_schema_json, output_schema_json, persona_context, task_description, input_label, cross_cutting_clues_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.id,
@@ -117,6 +171,9 @@ export function createProject(input: {
         JSON.stringify({ kind: "text" }),
         JSON.stringify(input.outputSchema),
         input.personaContext ?? "",
+        input.taskDescription ?? "",
+        input.inputLabel ?? input.name,
+        JSON.stringify(input.crossCuttingClues ?? []),
       );
     return { ok: true, project: getProject(input.id)! };
   } catch (err) {
@@ -135,10 +192,147 @@ export function createProject(input: {
 // byte-identical after the engine retargets in a later commit.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Seeded ticket project — every prompt string below MUST match the pre-
+// registry engine's text byte-for-byte so the regression race reproduces
+// fields, signals, and cost math. Generic fallbacks live in the flows.
+// ---------------------------------------------------------------------------
+
+const TICKET_PRIOR_UTILS: Clue[] = [
+  { key: "outage_or_emergency", label: "live outage / security / financial emergency", question: "Is there a live outage, security exposure, legal, or financial emergency described in this ticket?" },
+  { key: "blocked_from_work", label: "blocked from doing their work", question: "Does the customer describe being blocked from doing their work?" },
+  { key: "strong_frustration", label: "strong frustration or anger, in their own words", question: "Does the customer express strong frustration or anger in their own words?" },
+  { key: "minor_no_pressure", label: "minor inconvenience, no real time pressure", question: "Is this a minor inconvenience with no real time pressure — can the customer reasonably wait?" },
+];
+
+const TICKET_CROSS_CUTTING: Clue[] = [
+  { key: "multiple_distinct_issues_present", label: "multiple distinct issues", question: "Does this ticket describe two or more distinct, separable issues?" },
+  { key: "explicit_deadline_mentioned", label: "explicit deadline", question: "Does the customer state an explicit deadline, time limit, or specific date by which something must happen?" },
+  { key: "threatens_to_cancel_or_leave", label: "threatens to leave", question: "Does the customer threaten — explicitly or implicitly — to cancel, downgrade, switch provider, or otherwise leave?" },
+];
+
+const SENTIMENT_SCALE = [
+  "Very negative — furious, threatening, or deeply frustrated",
+  "Negative — annoyed, disappointed, or dissatisfied",
+  "Neutral — factual, calm, no strong emotion",
+  "Positive — polite, satisfied, appreciative",
+  "Very positive — delighted, enthusiastic, grateful",
+];
+
+const REPLY_FIELD: OutputField = {
+  key: "reply",
+  label: "Reply",
+  type: "free_text",
+  generatePrompt:
+    "Acknowledge the issue, state what the responsible team will do, and give a realistic next step. " +
+    "Output ONLY the customer-facing reply text as plain prose — never echo tool names, JSON blocks, or section headers. " +
+    "No placeholder text, no sign-off name other than 'Support Team'.",
+  constrainedPrompt:
+    "Your ONLY job is to draft the reply (80-150 words). Do NOT re-derive the triage fields. " +
+    "Acknowledge the issue, state what the responsible team will do, give a realistic next step. " +
+    "Output ONLY the customer-facing reply text as plain prose — never echo tool names, JSON blocks, or section headers. " +
+    "No placeholder text, sign off as 'Support Team'.",
+};
+
+function ticketOutputSchema(byType: (t: string) => OutputFieldOption[]): OutputSchema {
+  return [
+    {
+      key: "category",
+      label: "Category",
+      type: "enum",
+      options: byType("category"),
+      prompt: "Classify the primary intent of this support ticket.",
+      promptHint: "Primary category of the ticket",
+    },
+    {
+      key: "priority",
+      label: "Priority",
+      type: "enum",
+      options: byType("priority"),
+      prompt: "Judge how urgently this support ticket must be handled.",
+      promptHint: "How urgently the ticket needs handling",
+      clues: TICKET_PRIOR_UTILS,
+      supportClues: TICKET_PRIOR_UTILS.slice(0, 3).map((c) => c.key),
+      opposeClues: ["minor_no_pressure"],
+    },
+    {
+      key: "sentiment",
+      label: "Sentiment",
+      type: "float_range",
+      range: { min: -1, max: 1 },
+      scale: SENTIMENT_SCALE,
+      prompt: "Rate the customer's emotional tone in this support ticket.",
+      promptHint: "Customer sentiment from -1 (very negative) to 1 (very positive)",
+      systemHint: ["very angry", "neutral", "delighted"] as [string, string, string],
+    },
+    {
+      key: "route_to_team",
+      label: "Route to team",
+      type: "enum",
+      options: byType("route_to_team"),
+      prompt: "Decide which internal team should own this support ticket.",
+      promptHint: "Team that should own this ticket",
+    },
+    REPLY_FIELD,
+  ];
+}
+
+const TICKET_PROJECT_DEFAULTS = {
+  id: "support-ticket-triage",
+  name: "Support Ticket Triage",
+  taskDescription: "Customer support ticket triage",
+  inputLabel: "Support ticket",
+  crossCuttingClues: TICKET_CROSS_CUTTING,
+};
+
 export function seedProjects(): void {
   const d = getDb();
-  const count = (d.prepare("SELECT COUNT(*) AS n FROM projects").get() as { n: number }).n;
-  if (count > 0) return;
+  const persona = (
+    d.prepare("SELECT value FROM settings WHERE key = 'business_context'").get() as
+      | { value: string }
+      | undefined
+  )?.value ?? "";
+
+  const existing = getProject(TICKET_PROJECT_DEFAULTS.id);
+  if (existing) {
+    // Backfill phase-2 enrichment on databases seeded before these columns
+    // existed: task/input/cross-cutting + reply free_text + field prompts.
+    const patch: Parameters<typeof updateProject>[1] = {};
+    if (!existing.taskDescription) patch.taskDescription = TICKET_PROJECT_DEFAULTS.taskDescription;
+    if (!existing.inputLabel) patch.inputLabel = TICKET_PROJECT_DEFAULTS.inputLabel;
+    if (existing.crossCuttingClues.length === 0) patch.crossCuttingClues = TICKET_CROSS_CUTTING;
+    if (!existing.outputSchema.some((f) => f.key === "reply")) {
+      patch.outputSchema = [
+        ...existing.outputSchema.map((f) =>
+          f.key === "priority" && !f.clues
+            ? {
+                ...f,
+                prompt: "Judge how urgently this support ticket must be handled.",
+                promptHint: "How urgently the ticket needs handling",
+                clues: TICKET_PRIOR_UTILS,
+                supportClues: TICKET_PRIOR_UTILS.slice(0, 3).map((c) => c.key),
+                opposeClues: ["minor_no_pressure"],
+              }
+            : f.key === "category"
+              ? { ...f, prompt: "Classify the primary intent of this support ticket.", promptHint: "Primary category of the ticket" }
+              : f.key === "route_to_team"
+                ? { ...f, prompt: "Decide which internal team should own this support ticket.", promptHint: "Team that should own this ticket" }
+                : f.key === "sentiment"
+                  ? {
+                      ...f,
+                      prompt: "Rate the customer's emotional tone in this support ticket.",
+                      promptHint: "Customer sentiment from -1 (very negative) to 1 (very positive)",
+                      scale: SENTIMENT_SCALE,
+                      systemHint: ["very angry", "neutral", "delighted"] as [string, string, string],
+                    }
+                  : f,
+        ),
+        REPLY_FIELD,
+      ];
+    }
+    if (Object.keys(patch).length > 0) updateProject(existing.id, patch);
+    return;
+  }
 
   const rows = d
     .prepare(
@@ -149,20 +343,9 @@ export function seedProjects(): void {
   const byType = (t: string): OutputFieldOption[] =>
     rows.filter((r) => r.taxonomy_type === t).map((r) => ({ key: r.key, label: r.label, description: r.description }));
 
-  const persona = (
-    d.prepare("SELECT value FROM settings WHERE key = 'business_context'").get() as
-      | { value: string }
-      | undefined
-  )?.value ?? "";
   createProject({
-    id: "support-ticket-triage",
-    name: "Support Ticket Triage",
-    outputSchema: [
-      { key: "category", label: "Category", type: "enum", options: byType("category") },
-      { key: "priority", label: "Priority", type: "enum", options: byType("priority") },
-      { key: "sentiment", label: "Sentiment", type: "float_range", range: { min: -1, max: 1 } },
-      { key: "route_to_team", label: "Route to team", type: "enum", options: byType("route_to_team") },
-    ],
+    ...TICKET_PROJECT_DEFAULTS,
+    outputSchema: ticketOutputSchema(byType),
     personaContext: persona,
   });
 }

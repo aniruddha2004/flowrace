@@ -72,9 +72,22 @@ function migrate(d: Database.Database): void {
       UNIQUE(taxonomy_type, key)
     );
   `);
+  addColumnIfMissing(d, "projects", "task_description", "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(d, "projects", "input_label", "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(d, "projects", "cross_cutting_clues_json", "TEXT NOT NULL DEFAULT '[]'");
+  addColumnIfMissing(d, "sessions", "project_id", "TEXT REFERENCES projects(id)");
+
   seedLegacy(d);
   seedPlatform();
   d.exec("DROP TABLE IF EXISTS taxonomy_options");
+  d.exec("UPDATE sessions SET project_id = 'support-ticket-triage' WHERE project_id IS NULL");
+}
+
+function addColumnIfMissing(d: Database.Database, table: string, column: string, ddl: string): void {
+  const cols = d.pragma(`table_info(${table})`) as { name: string }[];
+  if (!cols.some((c) => c.name === column)) {
+    d.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+  }
 }
 
 // Legacy seed (pre-registry shape). Idempotent — still required on a brand-new

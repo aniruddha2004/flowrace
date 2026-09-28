@@ -1,4 +1,4 @@
-import type { TicketAnalysis } from "./schema";
+import type { FlowAnalysis } from "./schema";
 
 // NDJSON stream contract for POST /api/race — one JSON object per line.
 
@@ -26,7 +26,7 @@ export type RaceEvent =
       flow: FlowId;
       step: "classification";
       ms: number;
-      data: TicketAnalysis;
+      data: FlowAnalysis;
       metrics: StepMetrics;
     }
   | {
@@ -34,7 +34,7 @@ export type RaceEvent =
       flow: FlowId;
       step: "reply";
       ms: number;
-      reply: string;
+      freeText: Record<string, string>;
       metrics: StepMetrics;
     }
   | {

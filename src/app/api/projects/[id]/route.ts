@@ -25,11 +25,14 @@ export async function PATCH(
   } catch {
     return NextResponse.json({ error: "Request body must be JSON." }, { status: 400 });
   }
-  const b = body as { name?: unknown; outputSchema?: unknown; personaContext?: unknown };
+  const b = body as { name?: unknown; outputSchema?: unknown; personaContext?: unknown; taskDescription?: unknown; inputLabel?: unknown; crossCuttingClues?: unknown };
   const result = updateProject(id, {
     name: typeof b.name === "string" ? b.name : undefined,
     outputSchema: Array.isArray(b.outputSchema) ? (b.outputSchema as OutputSchema) : undefined,
     personaContext: typeof b.personaContext === "string" ? b.personaContext : undefined,
+    taskDescription: typeof b.taskDescription === "string" ? b.taskDescription : undefined,
+    inputLabel: typeof b.inputLabel === "string" ? b.inputLabel : undefined,
+    crossCuttingClues: Array.isArray(b.crossCuttingClues) ? (b.crossCuttingClues as never) : undefined,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 404 });
   return NextResponse.json({ ok: true });

@@ -11,7 +11,7 @@ export interface QuestionSpec {
   key: string;
   /** Full prompt text for this question — the adapter passes it through verbatim. */
   instructions: string;
-  type: "enum" | "float_range" | "noul" | "free_text";
+  type: "enum" | "float_range" | "noul" | "boolean" | "free_text";
   options?: { key: string; label: string; description: string }[];
   range?: { min: number; max: number };
   /** score-type scale band descriptions (system_one adapters only). */

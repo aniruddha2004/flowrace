@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { TicketAnalysis } from "@/lib/schema";
+import type { OutputField } from "@/lib/projects";
+import type { FlowAnalysis } from "@/lib/schema";
 
 export type Accent = "a" | "b";
 
@@ -85,12 +86,10 @@ export function FieldRow({ label, value, confidence, accent, agree }: FieldRowPr
   );
 }
 
-const SKELETON_FIELDS = ["Category", "Priority", "Sentiment", "Route to team"];
-
-export function FieldSkeleton() {
+export function FieldSkeleton({ labels }: { labels: string[] }) {
   return (
     <div className="space-y-2">
-      {SKELETON_FIELDS.map((label) => (
+      {labels.map((label) => (
         <div key={label} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 py-2.5">
           <span className="w-20 shrink-0 truncate text-[13px] text-muted">{label}</span>
           <span className="skeleton-shimmer h-6 w-16 rounded-md" />
@@ -102,17 +101,17 @@ export function FieldSkeleton() {
   );
 }
 
-export function fieldValue(analysis: TicketAnalysis, field: string): string {
-  switch (field) {
-    case "category":
-      return analysis.category;
-    case "priority":
-      return analysis.priority;
-    case "sentiment":
-      return analysis.sentiment.toFixed(2);
-    case "route_to_team":
-      return analysis.route_to_team;
-    default:
-      return "";
-  }
+export function formatValue(field: OutputField, value: string | number | boolean | undefined): string {
+  if (value === undefined) return "—";
+  if (field.type === "float_range") return Number(value).toFixed(2);
+  if (field.type === "boolean") return value ? "Yes" : "No";
+  return String(value);
+}
+
+export function fieldValue(analysis: FlowAnalysis, field: OutputField): string {
+  return formatValue(field, analysis.values[field.key]?.value);
+}
+
+export function fieldConfidence(analysis: FlowAnalysis, field: OutputField): number {
+  return analysis.values[field.key]?.confidence ?? 0;
 }

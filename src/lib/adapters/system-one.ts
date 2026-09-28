@@ -70,6 +70,7 @@ function toJevQuestion(spec: QuestionSpec): Record<string, unknown> {
     case "float_range":
       return { type: "score", instructions: spec.instructions, criteria: spec.scale ?? [] };
     case "noul":
+    case "boolean":
       return {
         type: "noul",
         instructions: spec.instructions,

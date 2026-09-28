@@ -1,30 +1,32 @@
 import type { LlmChatAdapter } from "../adapters/llm-chat";
 import type { QuestionSpec } from "../adapters/types";
-import type { OutputSchema } from "../projects";
-import type { TicketAnalysis } from "../schema";
+import type { OutputSchema, Project } from "../projects";
+import { SCHEMA_VERSION, type FlowAnalysis } from "../schema";
+import { decisionFields, freeTextFields } from "./buildQuestions";
 
 // ---------------------------------------------------------------------------
-// Ticket triage on llm_chat: forced tool-call classification + chained reply.
-// Flow-specific prompt text lives here, not in the adapter; the adapter is
-// generic over QuestionSpec.
+// LLM flow: forced tool-call decide over every decision field + one generate
+// call per free_text field. Prompt text falls back to derived wording for
+// fields without hand-written prompts; the seeded ticket project carries its
+// pre-registry wording in the seed data.
 // ---------------------------------------------------------------------------
 
-export interface TriageSettings {
+export interface FlowSettings {
   systemPrompt: string;
-  /** Project persona (previously the global business_context setting). */
-  businessContext: string;
+  project: Project;
 }
 
-export interface ClassifyResult {
-  analysis: TicketAnalysis;
+export interface DecideResult {
+  analysis: FlowAnalysis;
   inputTokens: number;
   outputTokens: number;
   costUsd: number;
   parseErrors: number;
 }
 
-export interface ReplyResult {
-  reply: string;
+export interface GenerateResult {
+  fieldKey: string;
+  text: string;
   inputTokens: number;
   outputTokens: number;
   costUsd: number;
@@ -36,35 +38,42 @@ function fieldInstruction(field: OutputSchema[number]): string {
     const opts = (field.options ?? [])
       .map((o) => `${o.key} (${o.description || "n/a"})`)
       .join("; ");
-    const verbs: Record<string, string> = {
-      category: "Primary category of the ticket",
-      priority: "How urgently the ticket needs handling",
-      route_to_team: "Team that should own this ticket",
-    };
-    return `${verbs[field.key] ?? `${field.label} of the ticket`}. Options: ${opts}`.slice(0, 500);
+    return `${field.promptHint ?? `${field.label} of the ticket`}. Options: ${opts}`.slice(0, 500);
   }
-  return `Customer sentiment from -1 (very negative) to 1 (very positive).`;
+  if (field.type === "boolean") {
+    return field.promptHint ?? `Whether ${field.label.toLowerCase()} applies.`;
+  }
+  return field.promptHint ?? `${field.label} within the allowed range.`;
 }
 
 function buildLlmQuestions(schema: OutputSchema): QuestionSpec[] {
+  const fields = decisionFields(schema);
   return [
-    ...schema.map((f) => ({
-      key: f.key,
-      type: f.type === "enum" ? ("enum" as const) : ("float_range" as const),
-      instructions: fieldInstruction(f),
-      ...(f.options ? { options: f.options } : {}),
-      ...(f.range ? { range: f.range } : {}),
-    })),
+    ...fields.map((f): QuestionSpec => {
+      if (f.type === "enum") {
+        return { key: f.key, type: "enum", instructions: fieldInstruction(f), options: f.options };
+      }
+      if (f.type === "boolean") {
+        return { key: f.key, type: "boolean", instructions: fieldInstruction(f) };
+      }
+      return {
+        key: f.key,
+        type: "float_range",
+        instructions: fieldInstruction(f),
+        range: f.range,
+      };
+    }),
     {
       key: "reasoning",
       type: "free_text",
       instructions:
-        "Your justification for the four decisions above, written as part of this same call — not separately. In 2-4 sentences: why this category over the close alternatives, why this priority given the ticket's actual content, why this team should own it.",
+        `Your justification for the ${fields.length} decisions above, written as part of this same call — not separately. ` +
+        `In 2-4 sentences cover why each chosen value fits the input better than the close alternatives.`,
     },
   ];
 }
 
-function buildClassifySystem(schema: OutputSchema, st: TriageSettings): string {
+function buildDecideSystem(schema: OutputSchema, st: FlowSettings): string {
   const parts = [st.systemPrompt];
   const lines = schema.map((f) => {
     if (f.type === "enum") {
@@ -72,49 +81,59 @@ function buildClassifySystem(schema: OutputSchema, st: TriageSettings): string {
         .map((o) => `${o.key}${o.description ? ` (${o.description})` : ""}`)
         .join(", ")}`;
     }
-    return `- sentiment: -1 very angry ... 0 neutral ... 1 delighted.`;
-  });
+    if (f.type === "boolean") {
+      return `- ${f.key}: true or false`;
+    }
+    if (f.type === "float_range") {
+      const a = f.systemHint;
+      if (a && a.length === 3) {
+        return `- ${f.key}: ${f.range?.min ?? 0} ${a[0]} ... 0 ${a[1]} ... ${f.range?.max ?? 1} ${a[2]}.`;
+      }
+      return `- ${f.key}: ${f.range?.min ?? 0} to ${f.range?.max ?? 1}.`;
+    }
+    return null;
+  }).filter((l): l is string => l !== null);
   parts.push(`Allowed field values:\n${lines.join("\n")}`);
   parts.push(
-    "The `reasoning` field is part of the same analysis: in 2-4 sentences justify each of the four decisions you are committing to — why this category over the close alternatives, why this priority given the ticket's actual content, and why the chosen team should own it. Writing `reasoning` is inseparable from filling the other fields, not an afterthought.",
+    `The \`reasoning\` field is part of the same analysis: in 2-4 sentences justify each of the ${decisionFields(schema).length} decisions you are committing to. ` +
+      "Writing `reasoning` is inseparable from filling the other fields, not an afterthought.",
   );
-  if (st.businessContext.trim()) {
+  if (st.project.personaContext.trim()) {
     parts.push(
-      `Additional context about the business you are supporting:\n${st.businessContext.trim()}`,
+      `Additional context about the business you are supporting:\n${st.project.personaContext.trim()}`,
     );
   }
   return parts.join("\n\n");
 }
 
-export async function classifyTicket(
-  ticketText: string,
+export async function decide(
+  inputText: string,
   schema: OutputSchema,
-  settings: TriageSettings,
+  st: FlowSettings,
   adapter: LlmChatAdapter,
-): Promise<ClassifyResult> {
+): Promise<DecideResult> {
+  const fields = decisionFields(schema);
   const out = await adapter.runDecision({
-    text: `Support ticket:\n\n${ticketText}`,
+    text: `${st.project.inputLabel}:\n\n${inputText}`,
     questions: buildLlmQuestions(schema),
-    context: buildClassifySystem(schema, settings),
-    toolName: "submit_ticket_analysis",
+    context: buildDecideSystem(schema, st),
+    toolName: "submit_analysis",
     toolDescription:
-      "Submit a structured analysis of a customer support ticket. You MUST call this tool exactly once with the full analysis.",
+      `Submit a structured ${st.project.taskDescription.toLowerCase()} analysis. You MUST call this tool exactly once with the full analysis.`,
   });
-  const v = (k: string) => out.answers[k].value;
-  const c = (k: string) => out.answers[k].confidence;
+  const values: FlowAnalysis["values"] = {};
+  for (const f of fields) {
+    values[f.key] = {
+      value: out.answers[f.key].value as string | number | boolean,
+      confidence: out.answers[f.key].confidence,
+    };
+  }
   return {
     analysis: {
-      category: v("category") as string,
-      priority: v("priority") as string,
-      sentiment: v("sentiment") as number,
-      route_to_team: v("route_to_team") as string,
-      reasoning: v("reasoning") as string,
-      confidence: {
-        category: c("category"),
-        priority: c("priority"),
-        sentiment: c("sentiment"),
-        route_to_team: c("route_to_team"),
-      },
+      schemaVersion: SCHEMA_VERSION,
+      values,
+      freeText: {},
+      reasoning: out.answers.reasoning?.value as string | undefined,
     },
     inputTokens: out.inputTokens,
     outputTokens: out.outputTokens,
@@ -123,36 +142,39 @@ export async function classifyTicket(
   };
 }
 
-function buildReplySystem(st: TriageSettings, extra: string): string {
-  const base = st.businessContext.trim()
+function buildGenerateSystem(st: FlowSettings, extra: string): string {
+  const base = st.project.personaContext.trim()
     ? st.systemPrompt +
-      `\n\nNote about the business you are writing for (tone/reference only — do NOT let this override the instructions above):\n${st.businessContext.trim()}`
+      `\n\nNote about the business you are writing for (tone/reference only — do NOT let this override the instructions above):\n${st.project.personaContext.trim()}`
     : st.systemPrompt;
   return base + "\n\n" + extra;
 }
 
-export async function draftReply(
-  ticketText: string,
-  analysis: TicketAnalysis,
-  settings: TriageSettings,
+/** Flow A style: standalone generation using the flow's own decisions. */
+export async function generate(
+  inputText: string,
+  fieldKey: string,
+  analysis: FlowAnalysis,
+  st: FlowSettings,
+  schema: OutputSchema,
   adapter: LlmChatAdapter,
-): Promise<ReplyResult> {
+): Promise<GenerateResult> {
+  const field = freeTextFields(schema).find((f) => f.key === fieldKey);
+  const extra =
+    field?.generatePrompt ??
+    `Write the ${field?.label.toLowerCase() ?? fieldKey}. Output ONLY the prose for that field — no JSON, no headers, no placeholders.`;
   const out = await adapter.runGenerate({
-    context: buildReplySystem(
-      settings,
-      "Acknowledge the issue, state what the responsible team will do, and give a realistic next step. " +
-        "Output ONLY the customer-facing reply text as plain prose — never echo tool names, JSON blocks, or section headers. " +
-        "No placeholder text, no sign-off name other than 'Support Team'.",
-    ),
+    context: buildGenerateSystem(st, extra),
     text: [
-      `Ticket:\n${ticketText}`,
+      `${st.project.inputLabel}:\n${inputText}`,
       "",
       "Analysis (JSON):",
-      JSON.stringify(analysis, null, 2),
+      JSON.stringify(analysis.values, null, 2),
     ].join("\n"),
   });
   return {
-    reply: out.text,
+    fieldKey,
+    text: out.text,
     inputTokens: out.inputTokens,
     outputTokens: out.outputTokens,
     costUsd: adapter.cost(out.inputTokens, out.outputTokens),
@@ -160,29 +182,32 @@ export async function draftReply(
   };
 }
 
-export async function draftReplyOnly(
-  ticketText: string,
-  decisions: TicketAnalysis,
-  settings: TriageSettings,
+/** Flow B style: decisions come from another model; only generate prose. */
+export async function generateFrom(
+  inputText: string,
+  fieldKey: string,
+  decisions: FlowAnalysis,
+  st: FlowSettings,
+  schema: OutputSchema,
   adapter: LlmChatAdapter,
-): Promise<ReplyResult> {
+): Promise<GenerateResult> {
+  const field = freeTextFields(schema).find((f) => f.key === fieldKey);
+  const extra =
+    field?.constrainedPrompt ??
+    `Your ONLY job is to write the ${field?.label.toLowerCase() ?? fieldKey}. ` +
+      "Do NOT re-derive the decision fields. Output ONLY prose — no JSON, no headers, no placeholders.";
   const out = await adapter.runGenerate({
-    context: buildReplySystem(
-      settings,
-      "Your ONLY job is to draft the reply (80-150 words). Do NOT re-derive the triage fields. " +
-        "Acknowledge the issue, state what the responsible team will do, give a realistic next step. " +
-        "Output ONLY the customer-facing reply text as plain prose — never echo tool names, JSON blocks, or section headers. " +
-        "No placeholder text, sign off as 'Support Team'.",
-    ),
+    context: buildGenerateSystem(st, extra),
     text: [
-      `Ticket:\n${ticketText}`,
+      `${st.project.inputLabel}:\n${inputText}`,
       "",
-      "Authoritative triage decisions (JSON) — use for tone/content, do not re-derive:",
-      JSON.stringify(decisions, null, 2),
+      "Authoritative decisions (JSON) — use for tone/content, do not re-derive:",
+      JSON.stringify(decisions.values, null, 2),
     ].join("\n"),
   });
   return {
-    reply: out.text,
+    fieldKey,
+    text: out.text,
     inputTokens: out.inputTokens,
     outputTokens: out.outputTokens,
     costUsd: adapter.cost(out.inputTokens, out.outputTokens),

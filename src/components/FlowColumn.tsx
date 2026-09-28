@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { fmtCost, fmtMs, fmtTokens } from "@/lib/format";
+import type { OutputSchema, Project } from "@/lib/projects";
 import type { FlowState, StepState } from "@/lib/race-state";
-import { FIELD_LABELS } from "@/lib/schema";
 import { PRICING } from "@/lib/pricing";
-import { ACCENT, type Accent, FieldRow, FieldSkeleton, fieldValue } from "./FieldRow";
+import { freeTextFields } from "@/lib/flows/buildQuestions";
+import { ACCENT, type Accent, FieldRow, FieldSkeleton, fieldConfidence, fieldValue } from "./FieldRow";
 import { SignalsPanel } from "./SignalsPanel";
 
 interface FlowColumnProps {
@@ -13,7 +14,8 @@ interface FlowColumnProps {
   title: string;
   subtitle: string;
   state: FlowState;
-  compareAgainst?: FlowState;
+  schema: OutputSchema;
+  project?: Project | null;
   fieldsAgree?: Record<string, boolean> | null;
 }
 
@@ -175,7 +177,7 @@ function SignalsExplainer({
 
 // Flow-native "why": Flow A renders the LLM's own prose rationale; Flow B
 // renders Jev's calibrated signals. Never both — guarded per field.
-function WhySection({ accent, state }: { accent: Accent; state: FlowState }) {
+function WhySection({ accent, state, schema, project }: { accent: Accent; state: FlowState; schema: OutputSchema; project: Project | null }) {
   const [open, setOpen] = useState(false);
   const [info, setInfo] = useState(false);
   const reasoning = state.analysis?.reasoning;
@@ -228,15 +230,15 @@ function WhySection({ accent, state }: { accent: Accent; state: FlowState }) {
           ) : signals && state.analysis ? (
             <SignalsPanel
               signals={signals}
-              winners={{
-                category: state.analysis.category,
-                priority: state.analysis.priority,
-                route_to_team: state.analysis.route_to_team,
-              }}
-              mismatch={
-                mismatch ?? { category: false, priority: false, route_to_team: false }
-              }
+              winners={Object.fromEntries(
+                schema
+                  .filter((f) => f.type === "enum" && typeof state.analysis!.values[f.key]?.value === "string")
+                  .map((f) => [f.key, state.analysis!.values[f.key].value as string]),
+              )}
+              mismatch={mismatch ?? {}}
               accent={accent}
+              fields={schema}
+              project={project}
             />
           ) : null}
         </div>
@@ -278,7 +280,7 @@ function ReplyBlock({ text }: { text: string }) {
   );
 }
 
-export function FlowColumn({ accent, title, subtitle, state, fieldsAgree }: FlowColumnProps) {
+export function FlowColumn({ accent, title, subtitle, state, schema, project, fieldsAgree }: FlowColumnProps) {
   const a = ACCENT[accent];
   const started =
     state.classification.status !== "idle" ||
@@ -286,12 +288,8 @@ export function FlowColumn({ accent, title, subtitle, state, fieldsAgree }: Flow
     Boolean(state.error) ||
     Boolean(state.analysis);
 
-  const fields: Array<{ key: string; label: string }> = [
-    { key: "category", label: FIELD_LABELS.category },
-    { key: "priority", label: FIELD_LABELS.priority },
-    { key: "sentiment", label: FIELD_LABELS.sentiment },
-    { key: "route_to_team", label: FIELD_LABELS.route_to_team },
-  ];
+  const fields = schema.filter((f) => f.type !== "free_text");
+  const freeFields = freeTextFields(schema);
 
   return (
     <section className="flex flex-col overflow-hidden rounded-xl border border-line bg-panel">
@@ -327,44 +325,50 @@ export function FlowColumn({ accent, title, subtitle, state, fieldsAgree }: Flow
             <h3 className="mb-1 font-display text-sm font-medium text-ink">Classification</h3>
             {state.analysis ? (
               <div className="divide-y divide-line">
-                {fields.map(({ key, label }) => (
+                {fields.map((field) => (
                   <FieldRow
-                    key={key}
+                    key={field.key}
                     accent={accent}
-                    label={label}
-                    value={fieldValue(state.analysis!, key)}
-                    confidence={
-                      state.analysis!.confidence[key as keyof typeof state.analysis.confidence]
-                    }
-                    agree={fieldsAgree ? fieldsAgree[key] : null}
+                    label={field.label}
+                    value={fieldValue(state.analysis!, field)}
+                    confidence={fieldConfidence(state.analysis!, field)}
+                    agree={fieldsAgree ? fieldsAgree[field.key] : null}
                   />
                 ))}
               </div>
             ) : state.classification.status === "running" ? (
-              <FieldSkeleton />
+              <FieldSkeleton labels={fields.map((f) => f.label)} />
             ) : (
               <p className="py-2 text-xs text-muted">—</p>
             )}
           </div>
 
-          <WhySection accent={accent} state={state} />
+          <WhySection accent={accent} state={state} schema={schema} project={project ?? null} />
 
-          <div>
-            <h3 className="mb-1 font-display text-sm font-medium text-ink">Drafted reply</h3>
-            {state.replyText ? (
-              <ReplyBlock text={state.replyText} />
-            ) : state.reply.status === "running" ? (
-              <div className="space-y-2 rounded-lg border border-line p-4">
-                <div className="skeleton-shimmer h-3 w-full rounded" />
-                <div className="skeleton-shimmer h-3 w-11/12 rounded" />
-                <div className="skeleton-shimmer h-3 w-4/5 rounded" />
+          {freeFields.map((ff) => {
+            const generated = state.analysis?.freeText?.[ff.key] ?? state.freeText?.[ff.key];
+            const onlyOne = freeFields.length === 1;
+            return (
+              <div key={ff.key}>
+                <h3 className="mb-1 font-display text-sm font-medium text-ink">
+                  {onlyOne && ff.key === "reply" ? "Drafted reply" : ff.label}
+                </h3>
+                {generated ? (
+                  <ReplyBlock text={generated} />
+                ) : state.reply.status === "running" ? (
+                  <div className="space-y-2 rounded-lg border border-line p-4">
+                    <div className="skeleton-shimmer h-3 w-full rounded" />
+                    <div className="skeleton-shimmer h-3 w-11/12 rounded" />
+                    <div className="skeleton-shimmer h-3 w-4/5 rounded" />
+                  </div>
+                ) : state.error && state.error.step === "reply" && ff.key === freeFields[0].key ? (
+                  <ErrorCard state={state} />
+                ) : (
+                  <p className="py-2 text-xs text-muted">—</p>
+                )}
               </div>
-            ) : state.error && state.error.step === "reply" ? (
-              <ErrorCard state={state} />
-            ) : (
-              <p className="py-2 text-xs text-muted">—</p>
-            )}
-          </div>
+            );
+          })}
         </div>
       )}
 
