@@ -109,11 +109,12 @@ export async function classifyWithJev(
     }
   }
 
+  // Parity with the pre-registry shape: only fields that actually have clue
+  // probes get a signals section — floats/booleans with no clues are omitted
+  // entirely (no empty sections).
   const signals: NonNullable<FlowAnalysis["signals"]> = {};
-  for (const f of decisionFields(schema)) signals[f.key] = {};
-  signals.cross_cutting = {};
   for (const [key, meta] of Object.entries(plan.mapping)) {
-    signals[meta.field][meta.label] = out.answers[key]
+    (signals[meta.field] ??= {})[meta.label] = out.answers[key]
       ? noulSignal(out.answers[key].value as number)
       : { match: false, confidence: 0 };
   }
