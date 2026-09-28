@@ -8,10 +8,7 @@
 
 /* ---------------------------------------------------------------------------
    Design tokens.
-   Cool neutral surfaces (not the default warm cream) with two accent lanes:
-   amber for Flow A (the incumbent, all-LLM approach) and teal for Flow B
-   (the hybrid contender) — a deliberate "two lanes of a race" pairing that
-   is used consistently everywhere Flow A / Flow B are distinguished.
+    Cool neutral surfaces with amber, teal, and violet race lanes.
 --------------------------------------------------------------------------- */
 
 @theme {
@@ -24,6 +21,8 @@
   --color-accent-a-soft: #f7ead9;
   --color-accent-b: #0d7a68;
   --color-accent-b-soft: #dcf1ec;
+  --color-accent-c: #7353a4;
+  --color-accent-c-soft: #ede5f7;
   --color-track: #e9eaef;
   --color-muted: #8b909c;
 
@@ -41,6 +40,8 @@ html.dark {
   --color-accent-a-soft: #3a2a15;
   --color-accent-b: #3fbca6;
   --color-accent-b-soft: #12332e;
+  --color-accent-c: #c1a0ed;
+  --color-accent-c-soft: #30253e;
   --color-track: #20242c;
   --color-muted: #676d79;
 

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { TicketAnalysis } from "@/lib/schema";
 
-export type Accent = "a" | "b";
+export type Accent = "a" | "b" | "c";
 
 export const ACCENT: Record<
   Accent,
@@ -28,6 +28,13 @@ export const ACCENT: Record<
     barBg: "bg-accent-b",
     chipBorder: "border-accent-b/30",
     dotBg: "bg-accent-b",
+  },
+  c: {
+    text: "text-accent-c",
+    softBg: "bg-accent-c-soft",
+    barBg: "bg-accent-c",
+    chipBorder: "border-accent-c/30",
+    dotBg: "bg-accent-c",
   },
 };
 
