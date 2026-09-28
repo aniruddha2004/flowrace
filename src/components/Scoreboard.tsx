@@ -7,10 +7,12 @@ export interface MetricTally {
   a: number;
   tie: number;
   b: number;
+  c: number;
 }
 
 export interface ScoreboardData {
   runs: number;
+  threeWayRuns: number;
   latency: MetricTally;
   cost: MetricTally;
   parseErrors: MetricTally;
@@ -21,9 +23,10 @@ export interface ScoreboardData {
 export function emptyScoreboard(): ScoreboardData {
   return {
     runs: 0,
-    latency: { a: 0, tie: 0, b: 0 },
-    cost: { a: 0, tie: 0, b: 0 },
-    parseErrors: { a: 0, tie: 0, b: 0 },
+    threeWayRuns: 0,
+    latency: { a: 0, tie: 0, b: 0, c: 0 },
+    cost: { a: 0, tie: 0, b: 0, c: 0 },
+    parseErrors: { a: 0, tie: 0, b: 0, c: 0 },
     agreementSum: 0,
     agreementCount: 0,
   };
@@ -36,7 +39,7 @@ export function tallyWinner(tally: MetricTally, winner: Winner): MetricTally {
 }
 
 function TallyRow({ label, tally }: { label: string; tally: MetricTally }) {
-  const total = Math.max(1, tally.a + tally.tie + tally.b);
+  const total = Math.max(1, tally.a + tally.tie + tally.b + (tally.c ?? 0));
   return (
     <div className="py-2.5">
       <div className="mb-1.5 flex flex-wrap items-center justify-between gap-x-3">
@@ -50,6 +53,10 @@ function TallyRow({ label, tally }: { label: string; tally: MetricTally }) {
           <span className="inline-flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-full bg-accent-b" aria-hidden />
             <span className="text-ink">{tally.b}</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-accent-c" aria-hidden />
+            <span className="text-ink">{tally.c ?? 0}</span>
           </span>
         </div>
       </div>
@@ -65,6 +72,10 @@ function TallyRow({ label, tally }: { label: string; tally: MetricTally }) {
         <div
           className="bg-accent-b transition-[width] duration-500"
           style={{ width: `${(tally.b / total) * 100}%` }}
+        />
+        <div
+          className="bg-accent-c transition-[width] duration-500"
+          style={{ width: `${((tally.c ?? 0) / total) * 100}%` }}
         />
       </div>
     </div>
@@ -97,6 +108,9 @@ export function Scoreboard({ data }: { data: ScoreboardData }) {
               {avgAgreement !== null ? fmtPercent(avgAgreement) : "—"}
             </span>
           </div>
+          <p className="pt-2 font-mono text-[10px] text-muted">
+            {data.threeWayRuns ?? 0} three-way races · older sessions compare A and B
+          </p>
         </div>
       )}
     </section>
