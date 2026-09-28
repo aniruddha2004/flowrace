@@ -2,9 +2,9 @@
 
 import { useCallback, useRef, useState } from "react";
 import { COMPARE_FIELDS, fieldsAgree } from "@/lib/compare";
-import type { RaceEvent, StepMetrics } from "@/lib/events";
+import type { FlowId, RaceEvent, StepMetrics } from "@/lib/events";
 import { emptyFlowState, flowProgress, type FlowState } from "@/lib/race-state";
-import type { TicketAnalysis } from "@/lib/schema";
+import { asTicketAnalysis, type TicketAnalysis } from "@/lib/schema";
 import type { SessionFull } from "@/lib/sessions";
 
 import { ComparisonStrip } from "@/components/ComparisonStrip";
@@ -21,22 +21,18 @@ interface CompletedFlow {
   analysis: TicketAnalysis;
 }
 
-// Header race track — both flows' live progress made literal.
-function RaceTrack({ flowA, flowB }: { flowA: FlowState; flowB: FlowState }) {
-  const pa = flowProgress(flowA) * 100;
-  const pb = flowProgress(flowB) * 100;
+// Three independent progress lanes remain legible when all flows run at once.
+function RaceTrack({ flowA, flowB, flowC }: { flowA: FlowState; flowB: FlowState; flowC: FlowState }) {
   return (
-    <div className="h-[3px] w-full bg-track">
-      <div className="relative h-full w-full">
-        <div
-          className="absolute inset-y-0 left-0 bg-accent-a transition-[width] duration-500 ease-out"
-          style={{ width: `${pa}%` }}
-        />
-        <div
-          className="absolute inset-y-0 left-0 bg-accent-b/70 transition-[width] duration-500 ease-out"
-          style={{ width: `${pb}%`, mixBlendMode: "multiply" }}
-        />
-      </div>
+    <div className="flex h-[3px] w-full gap-px">
+      {([flowA, flowB, flowC] as const).map((flow, i) => (
+        <div key={i} className="h-full flex-1 bg-track">
+          <div
+            className={`h-full transition-[width] duration-500 ease-out ${["bg-accent-a", "bg-accent-b", "bg-accent-c"][i]}`}
+            style={{ width: `${flowProgress(flow) * 100}%` }}
+          />
+        </div>
+      ))}
     </div>
   );
 }
@@ -46,16 +42,17 @@ interface AppShellProps {
   onOpenSettings: () => void;
   trackFlowA?: FlowState;
   trackFlowB?: FlowState;
+  trackFlowC?: FlowState;
 }
 
-function AppShell({ children, onOpenSettings, trackFlowA, trackFlowB }: AppShellProps) {
+function AppShell({ children, onOpenSettings, trackFlowA, trackFlowB, trackFlowC }: AppShellProps) {
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
       <header className="shrink-0 border-b border-line bg-panel">
         <div className="flex h-14 items-center justify-between px-4 sm:px-6">
           <div className="flex items-baseline gap-2.5">
             <h1 className="font-display text-base font-bold tracking-tight text-ink">Flow Race</h1>
-            <span className="hidden font-mono text-xs text-muted sm:inline">LLM vs Jev triage</span>
+            <span className="hidden font-mono text-xs text-muted sm:inline">LLM vs Jev vs local GLiNER</span>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <button
@@ -72,7 +69,7 @@ function AppShell({ children, onOpenSettings, trackFlowA, trackFlowB }: AppShell
             <ThemeToggle />
           </div>
         </div>
-        {trackFlowA && trackFlowB && <RaceTrack flowA={trackFlowA} flowB={trackFlowB} />}
+        {trackFlowA && trackFlowB && trackFlowC && <RaceTrack flowA={trackFlowA} flowB={trackFlowB} flowC={trackFlowC} />}
       </header>
       <div className="flex flex-1 overflow-hidden">{children}</div>
     </div>
@@ -87,9 +84,10 @@ export default function Home() {
   const [singleRunning, setSingleRunning] = useState(false);
   const [flowA, setFlowA] = useState<FlowState>(emptyFlowState);
   const [flowB, setFlowB] = useState<FlowState>(emptyFlowState);
+  const [flowC, setFlowC] = useState<FlowState>(emptyFlowState);
   const [scoreboard, setScoreboard] = useState<ScoreboardData>(emptyScoreboard);
   const [bannerError, setBannerError] = useState<string | null>(null);
-  const completedRef = useRef<{ A?: CompletedFlow; B?: CompletedFlow }>({});
+  const completedRef = useRef<Partial<Record<FlowId, CompletedFlow>>>({});
   const [historyVersion, setHistoryVersion] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -157,19 +155,18 @@ export default function Home() {
   );
 
   const applyRaceEvent = useCallback((event: RaceEvent) => {
+    const setFlow = (flow: FlowId) => ({ A: setFlowA, B: setFlowB, C: setFlowC })[flow];
     switch (event.type) {
       case "step_start": {
-        const setFlow = event.flow === "A" ? setFlowA : setFlowB;
-        setFlow((prev) => ({
+        setFlow(event.flow)((prev) => ({
           ...prev,
           [event.step]: { status: "running", startedAt: event.at },
         }));
         break;
       }
       case "step_done": {
-        const setFlow = event.flow === "A" ? setFlowA : setFlowB;
         if (event.step === "classification") {
-          setFlow((prev) => ({
+          setFlow(event.flow)((prev) => ({
             ...prev,
             classification: { status: "done", ms: event.ms },
             analysis: event.data,
@@ -182,7 +179,7 @@ export default function Home() {
             analysis: event.data,
           };
         } else {
-          setFlow((prev) => ({
+          setFlow(event.flow)((prev) => ({
             ...prev,
             reply: { status: "done", ms: event.ms },
             replyText: event.reply,
@@ -192,8 +189,7 @@ export default function Home() {
         break;
       }
       case "flow_done": {
-        const setFlow = event.flow === "A" ? setFlowA : setFlowB;
-        setFlow((prev) => ({ ...prev, totalMs: event.totalMs, totals: event.totals }));
+        setFlow(event.flow)((prev) => ({ ...prev, totalMs: event.totalMs, totals: event.totals }));
         const bucket = completedRef.current[event.flow];
         if (bucket) {
           bucket.totalMs = event.totalMs;
@@ -202,8 +198,7 @@ export default function Home() {
         break;
       }
       case "flow_error": {
-        const setFlow = event.flow === "A" ? setFlowA : setFlowB;
-        setFlow((prev) => ({
+        setFlow(event.flow)((prev) => ({
           ...prev,
           [event.step]: { status: "error" },
           error: { step: event.step, code: event.code, message: event.message },
@@ -225,6 +220,7 @@ export default function Home() {
     completedRef.current = {};
     setFlowA(emptyFlowState());
     setFlowB(emptyFlowState());
+    setFlowC(emptyFlowState());
     setViewingSession(null);
 
     try {
@@ -245,9 +241,10 @@ export default function Home() {
     setBannerError(null);
     setSidebarOpen(false);
     const result = session.result as {
-      flows?: Partial<Record<"A" | "B", {
-        analysis?: TicketAnalysis;
+      flows?: Partial<Record<FlowId, {
+        analysis?: unknown;
         reply?: string;
+        freeText?: Record<string, string>;
         totalMs?: number;
         totals?: StepMetrics;
         classificationMetrics?: StepMetrics;
@@ -259,31 +256,39 @@ export default function Home() {
     };
     const a = result.flows?.A ?? {};
     const b = result.flows?.B ?? {};
-    const hydrate = (f: typeof a): FlowState => ({
-      classification: f.analysis
-        ? { status: "done", ms: f.classificationMs ?? f.totalMs }
-        : { status: "idle" },
-      reply: f.reply
-        ? { status: "done", ms: f.replyMs ?? f.totalMs }
-        : { status: "idle" },
-      analysis: f.analysis,
-      classificationMetrics: f.classificationMetrics,
-      replyText: f.reply,
-      replyMetrics: f.replyMetrics,
-      totalMs: f.totalMs,
-      totals: f.totals,
-      error: f.error ? { step: "reply", code: "internal", message: f.error } : undefined,
-    });
+    const c = result.flows?.C ?? {};
+    const hydrate = (f: typeof a): FlowState => {
+      const analysis = asTicketAnalysis(f.analysis);
+      const storedAnalysis = f.analysis as { freeText?: Record<string, string> } | undefined;
+      const reply = f.reply ?? f.freeText?.reply ?? storedAnalysis?.freeText?.reply;
+      return {
+        classification: analysis
+          ? { status: "done", ms: f.classificationMs ?? f.totalMs }
+          : { status: "idle" },
+        reply: reply
+          ? { status: "done", ms: f.replyMs ?? f.totalMs }
+          : { status: "idle" },
+        analysis,
+        classificationMetrics: f.classificationMetrics,
+        replyText: reply,
+        replyMetrics: f.replyMetrics,
+        totalMs: f.totalMs,
+        totals: f.totals,
+        error: f.error ? { step: "reply", code: "internal", message: f.error } : undefined,
+      };
+    };
     setFlowA(hydrate(a));
     setFlowB(hydrate(b));
+    setFlowC(hydrate(c));
   }, []);
 
-  const agreeMap: Record<string, boolean> | null =
-    flowA.analysis && flowB.analysis
-      ? Object.fromEntries(
-          COMPARE_FIELDS.map((f) => [f, fieldsAgree(flowA.analysis!, flowB.analysis!, f)]),
-        )
-      : null;
+  const agreeMap: Record<string, boolean> | null = flowA.analysis && flowB.analysis
+    ? Object.fromEntries(COMPARE_FIELDS.map((f) => [f,
+      fieldsAgree(flowA.analysis!, flowB.analysis!, f)
+      && (!flowC.analysis || (fieldsAgree(flowA.analysis!, flowC.analysis, f)
+        && fieldsAgree(flowB.analysis!, flowC.analysis, f))),
+    ]))
+    : null;
 
   const resetLiveView = useCallback((clearText: boolean) => {
     setViewingSession(null);
@@ -291,6 +296,7 @@ export default function Home() {
     completedRef.current = {};
     setFlowA(emptyFlowState());
     setFlowB(emptyFlowState());
+    setFlowC(emptyFlowState());
     setScoreboard(emptyScoreboard());
     if (clearText) setSingleText("");
     setSidebarOpen(false);
@@ -306,11 +312,12 @@ export default function Home() {
   );
 
   if (viewingSession) {
+    const hasFlowC = Boolean((viewingSession.result as { flows?: { C?: unknown } }).flows?.C);
     return (
       <AppShell onOpenSettings={() => setSettingsOpen(true)}>
         <div className="hidden min-h-0 sm:flex sm:items-stretch">{sidebar}</div>
         <div className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-[1400px] px-6 pb-16 pt-8 sm:px-10 lg:px-16">
+          <div className="mx-auto max-w-[1700px] px-6 pb-16 pt-8 sm:px-10 lg:px-8">
             <button
               onClick={() => resetLiveView(false)}
               className="mb-6 inline-flex items-center gap-1.5 font-mono text-xs text-accent-b hover:opacity-80"
@@ -338,7 +345,7 @@ export default function Home() {
               </p>
             </div>
 
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <div className={`grid grid-cols-1 gap-6 lg:grid-cols-2 ${hasFlowC ? "xl:grid-cols-3" : ""}`}>
               <FlowColumn
                 accent="a"
                 title="Flow A — LLM tool-call"
@@ -353,9 +360,16 @@ export default function Home() {
                 state={flowB}
                 fieldsAgree={agreeMap}
               />
+              {hasFlowC && <FlowColumn
+                accent="c"
+                title="Flow C — GLiNER + LLM hybrid"
+                subtitle="GLiNER2.5-Decide classifies locally; the LLM only drafts the reply from its decisions."
+                state={flowC}
+                fieldsAgree={agreeMap}
+              />}
             </div>
             <div className="mt-6">
-              <ComparisonStrip flowA={flowA} flowB={flowB} />
+              <ComparisonStrip flowA={flowA} flowB={flowB} flowC={hasFlowC ? flowC : undefined} />
             </div>
           </div>
         </div>
@@ -370,6 +384,7 @@ export default function Home() {
       onOpenSettings={() => setSettingsOpen(true)}
       trackFlowA={flowA}
       trackFlowB={flowB}
+      trackFlowC={flowC}
     >
       <div className="hidden min-h-0 sm:flex sm:items-stretch">{sidebar}</div>
 
@@ -382,7 +397,7 @@ export default function Home() {
       )}
 
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-[1400px] px-6 pb-16 pt-8 sm:px-10 lg:px-16">
+        <div className="mx-auto max-w-[1700px] px-6 pb-16 pt-8 sm:px-10 lg:px-8">
           <div className="mb-6 flex items-center justify-between gap-3">
             <button
               onClick={() => setSidebarOpen(true)}
@@ -403,7 +418,7 @@ export default function Home() {
 
           <div className="space-y-6">
             <InputCard text={singleText} running={singleRunning} onTextChange={setSingleText} onRun={runSingleRace} />
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
               <FlowColumn
                 accent="a"
                 title="Flow A — LLM tool-call"
@@ -418,13 +433,20 @@ export default function Home() {
                 state={flowB}
                 fieldsAgree={agreeMap}
               />
+              <FlowColumn
+                accent="c"
+                title="Flow C — GLiNER + LLM hybrid"
+                subtitle="GLiNER2.5-Decide classifies locally; the LLM only drafts the reply from its decisions."
+                state={flowC}
+                fieldsAgree={agreeMap}
+              />
             </div>
-            <ComparisonStrip flowA={flowA} flowB={flowB} />
+            <ComparisonStrip flowA={flowA} flowB={flowB} flowC={flowC} />
             <Scoreboard data={scoreboard} />
           </div>
 
           <footer className="mt-12 border-t border-line pt-6 text-center font-mono text-xs text-muted">
-            Flow A: forced tool-calling · Flow B: Jev System One + reply-only · all metrics are real API usage
+            Flow A: forced tool-calling · Flow B: Jev System One + reply-only · Flow C: local GLiNER + reply-only
           </footer>
         </div>
       </div>
