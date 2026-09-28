@@ -89,7 +89,7 @@ export interface JevClassifyResult {
 }
 
 // Cross-cutting noul questions — fixed, not tied to any taxonomy option.
-const CROSS_CUTTING: [string, string][] = [
+export const CROSS_CUTTING: [string, string][] = [
   [
     "multiple_distinct_issues_present",
     "Does this ticket describe two or more distinct, separable issues?",
@@ -107,7 +107,7 @@ const CROSS_CUTTING: [string, string][] = [
 // Priority signals: atomic evidence-of-urgency clues, NOT one question per
 // taxonomy level (that would just restate the decision). These probe what is
 // IN the ticket; the level choice should fall out of these facts.
-const PRIORITY_CLUES: [string, string][] = [
+export const PRIORITY_CLUES: [string, string][] = [
   [
     "outage_or_emergency",
     "Is there a live outage, security exposure, legal, or financial emergency described in this ticket?",
@@ -135,7 +135,7 @@ const LOW_URGENCY_CLUES = ["minor_no_pressure"] as const;
 
 // Human-readable clue label derived from an option description — this becomes
 // the UI row label, turning "bug" into "describes something is broken, …".
-function clueLabel(description: string): string {
+export function clueLabel(description: string): string {
   const d = description.trim().replace(/\.$/, "");
   return "describes " + d.charAt(0).toLowerCase() + d.slice(1);
 }
@@ -270,7 +270,7 @@ function mapSignals(
  * strongest. Category/route rows are keyed by clue label, so winner keys are
  * translated via the clue map first. Priority clues are evidence facts —
  * urgency vs. minor-inconvenience, matched to the selected level. */
-function computeSignalMismatch(
+export function computeSignalMismatch(
   signals: TicketSignals,
   winners: { category: string; priority: string; route_to_team: string },
   priorityKeys: string[],
