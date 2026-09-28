@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Settings } from "@/lib/settings";
-import type { Taxonomy, TaxonomyOption } from "@/lib/projects";
+import type { ModelRow } from "@/lib/models";
+import type { Project } from "@/lib/projects";
+import { SchemaTab } from "./SchemaTab";
 
 interface AppConfig {
   settings: Settings;
-  taxonomy: Taxonomy;
 }
 
 // ---------------------------------------------------------------------------
@@ -17,18 +18,20 @@ interface AppConfig {
 interface SettingsModalProps {
   open: boolean;
   onClose: () => void;
+  project: Project | null;
+  onProjectChange: () => void;
 }
 
-type TabId = "context" | "prompt" | "taxonomy" | "models";
+type TabId = "context" | "prompt" | "schema" | "models";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "context", label: "Business context" },
   { id: "prompt", label: "System prompt" },
-  { id: "taxonomy", label: "Taxonomy editor" },
+  { id: "schema", label: "Output schema" },
   { id: "models", label: "Models" },
 ];
 
-export function SettingsModal({ open, onClose }: SettingsModalProps) {
+export function SettingsModal({ open, onClose, project, onProjectChange }: SettingsModalProps) {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [tab, setTab] = useState<TabId>("context");
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -58,6 +61,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ businessContext: value }),
     });
+    onProjectChange();
   };
   const savePrompt = async (value: string) => {
     await fetch("/api/config", {
@@ -118,12 +122,12 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
         <div className="flex-1 overflow-y-auto px-6 py-5">
           {tab === "context" && <ContextTab value={config?.settings.businessContext ?? ""} onSave={saveContext} />}
           {tab === "prompt" && <PromptTab value={config?.settings.systemPrompt ?? ""} onSave={savePrompt} />}
-          {tab === "taxonomy" && (
-            <TaxonomyTab
-              taxonomy={config?.taxonomy ?? null}
-              onChange={(t) => setConfig((c) => (c ? { ...c, taxonomy: t } : c))}
-            />
-          )}
+          {tab === "schema" &&
+            (project ? (
+              <SchemaTab project={project} onChanged={onProjectChange} />
+            ) : (
+              <p className="text-sm text-muted">Loading…</p>
+            ))}
           {tab === "models" && open && <ModelsTab />}
         </div>
       </div>
@@ -220,243 +224,6 @@ function PromptTab({ value, onSave }: { value: string; onSave: (v: string) => Pr
       />
     </div>
   );
-}
-
-function TaxonomyTab({
-  taxonomy,
-  onChange,
-}: {
-  taxonomy: Taxonomy | null;
-  onChange: (t: Taxonomy) => void;
-}) {
-  if (!taxonomy) return <p className="text-sm text-muted">Loading…</p>;
-  return (
-    <div className="space-y-6">
-      {(["category", "priority", "route_to_team"] as const).map((type) => (
-        <TaxonomySection
-          key={type}
-          type={type}
-          options={taxonomy[type]}
-          onChange={(updated) => onChange({ ...taxonomy, [type]: updated })}
-        />
-      ))}
-    </div>
-  );
-}
-
-type TaxonomyType = "category" | "priority" | "route_to_team";
-
-const SECTION_LABELS: Record<TaxonomyType, string> = {
-  category: "Category",
-  priority: "Priority",
-  route_to_team: "Route to team",
-};
-
-function TaxonomySection({
-  type,
-  options,
-  onChange,
-}: {
-  type: TaxonomyType;
-  options: TaxonomyOption[];
-  onChange: (opts: TaxonomyOption[]) => void;
-}) {
-  const [adding, setAdding] = useState(false);
-  const [newKey, setNewKey] = useState("");
-  const [newLabel, setNewLabel] = useState("");
-  const [newDesc, setNewDesc] = useState("");
-
-  const reload = async (): Promise<TaxonomyOption[]> => {
-    const res = await fetch("/api/taxonomy");
-    const data = (await res.json()) as { taxonomy: { [k: string]: TaxonomyOption[] } };
-    return data.taxonomy[type];
-  };
-
-  const handleAdd = async () => {
-    if (!newKey.trim() || !newLabel.trim()) return;
-    await fetch("/api/taxonomy", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        taxonomyType: type,
-        key: newKey.trim(),
-        label: newLabel.trim(),
-        description: newDesc.trim(),
-      }),
-    });
-    onChange(await reload());
-    setAdding(false);
-    setNewKey("");
-    setNewLabel("");
-    setNewDesc("");
-  };
-
-  const handleDelete = async (id: string) => {
-    if (!confirm("Delete this option? Past sessions keep their stored labels.")) return;
-    await fetch(`/api/taxonomy/${id}`, { method: "DELETE" });
-    onChange(await reload());
-  };
-
-  const handleUpdate = async (
-    id: string,
-    patch: Partial<{ label: string; description: string }>,
-  ) => {
-    await fetch(`/api/taxonomy/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch),
-    });
-    onChange(await reload());
-  };
-
-  return (
-    <section>
-      <div className="mb-3 flex items-center justify-between">
-        <h3 className="font-display text-sm font-semibold text-ink">{SECTION_LABELS[type]}</h3>
-        <button
-          onClick={() => setAdding((a) => !a)}
-          className="rounded-md border border-line px-3 py-1.5 font-mono text-xs text-ink-soft transition-colors hover:border-ink/30 hover:text-ink"
-        >
-          {adding ? "Cancel" : "+ Add"}
-        </button>
-      </div>
-
-      {adding && (
-        <div className="animate-rise mb-3 rounded-lg border border-line bg-paper p-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <input
-              value={newKey}
-              onChange={(e) => setNewKey(e.target.value.toLowerCase())}
-              placeholder="key_snake_case"
-              className="rounded-md border border-line bg-panel px-3 py-2 font-mono text-sm text-ink placeholder:text-muted focus:border-accent-b/50 focus:outline-none"
-            />
-            <input
-              value={newLabel}
-              onChange={(e) => setNewLabel(e.target.value)}
-              placeholder="Display label"
-              className="rounded-md border border-line bg-panel px-3 py-2 font-display text-sm text-ink placeholder:text-muted focus:border-accent-b/50 focus:outline-none"
-            />
-          </div>
-          <textarea
-            value={newDesc}
-            onChange={(e) => setNewDesc(e.target.value)}
-            rows={2}
-            placeholder="What this option means (used by the LLM + Jev rubric)"
-            className="mt-3 w-full resize-y rounded-lg border border-line bg-panel px-3 py-2 font-mono text-sm text-ink placeholder:text-muted focus:border-accent-b/50 focus:outline-none"
-          />
-          <span
-            title={
-              !newKey.trim() || !newLabel.trim()
-                ? "Both Key and Label are required"
-                : undefined
-            }
-            className="mt-3 inline-block"
-          >
-            <button
-              onClick={handleAdd}
-              disabled={!newKey.trim() || !newLabel.trim()}
-              className="rounded-lg bg-ink px-4 py-2 font-display text-sm font-medium text-paper transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Add option
-            </button>
-          </span>
-        </div>
-      )}
-
-      <div className="divide-y divide-line rounded-lg border border-line">
-        {options.map((opt) => (
-          <TaxonomyRow key={opt.id} option={opt} onUpdate={handleUpdate} onDelete={handleDelete} />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function TaxonomyRow({
-  option,
-  onUpdate,
-  onDelete,
-}: {
-  option: TaxonomyOption;
-  onUpdate: (id: string, patch: Partial<{ label: string; description: string }>) => Promise<void>;
-  onDelete: (id: string) => Promise<void>;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [label, setLabel] = useState(option.label);
-  const [desc, setDesc] = useState(option.description);
-
-  const save = async () => {
-    await onUpdate(option.id, { label: label.trim(), description: desc.trim() });
-    setEditing(false);
-  };
-
-  return (
-    <div className="px-4 py-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <code className="max-w-full break-all rounded bg-track px-1.5 py-0.5 font-mono text-xs text-ink-soft">
-              {option.key}
-            </code>
-            {editing ? (
-              <input
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-                className="min-w-28 rounded border border-line bg-panel px-2 py-0.5 font-display text-sm text-ink focus:border-accent-b/50 focus:outline-none"
-              />
-            ) : (
-              <span className="font-display text-sm font-medium text-ink">{option.label}</span>
-            )}
-          </div>
-          {editing ? (
-            <textarea
-              value={desc}
-              onChange={(e) => setDesc(e.target.value)}
-              rows={2}
-              className="mt-1.5 w-full resize-y rounded border border-line bg-panel px-2 py-1 font-mono text-xs text-ink focus:border-accent-b/50 focus:outline-none"
-            />
-          ) : (
-            <p className="mt-1 break-words text-sm text-ink-soft">{option.description}</p>
-          )}
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <button
-            onClick={() => (editing ? void save() : setEditing(true))}
-            className="rounded px-2 py-1 font-mono text-xs text-ink-soft transition-colors hover:bg-track hover:text-ink"
-          >
-            {editing ? "Save" : "Edit"}
-          </button>
-          {editing && (
-            <button
-              onClick={() => setEditing(false)}
-              className="rounded px-2 py-1 font-mono text-xs text-muted hover:text-ink"
-            >
-              ✕
-            </button>
-          )}
-          <button
-            onClick={() => void onDelete(option.id)}
-            aria-label={`Delete ${option.key}`}
-            className="rounded px-2 py-1 font-mono text-xs text-rose-600 transition-colors hover:bg-rose-50 dark:hover:bg-rose-950/40"
-          >
-            Delete
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Models tab — registry management (add/edit/delete). Not a flow builder.
-// ---------------------------------------------------------------------------
-
-interface ModelRow {
-  id: string;
-  name: string;
-  adapterType: "llm_chat" | "system_one" | "custom_http";
-  apiConfig: { apiBase: string; apiKeyEnvVar: string; modelId?: string };
-  pricing: { inputPerM: number; outputPerM: number; outputFree: boolean };
 }
 
 function ModelsTab() {

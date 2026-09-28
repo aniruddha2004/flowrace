@@ -4,25 +4,26 @@ import { useEffect, useState } from "react";
 import type { SessionFull, SessionSummary } from "@/lib/sessions";
 
 interface SessionSidebarProps {
+  projectId?: string;
   activeId: string | null;
   onSelect: (session: SessionFull) => void;
   onNew: () => void;
   refreshKey?: number;
 }
 
-export function SessionSidebar({ activeId, onSelect, onNew, refreshKey = 0 }: SessionSidebarProps) {
+export function SessionSidebar({ projectId, activeId, onSelect, onNew, refreshKey = 0 }: SessionSidebarProps) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
 
   const refresh = () => {
-    fetch("/api/sessions")
+    fetch(projectId ? `/api/sessions?project=${encodeURIComponent(projectId)}` : "/api/sessions")
       .then((res) => res.json())
       .then((data: { sessions: SessionSummary[] }) => setSessions(data.sessions))
       .catch(() => {});
   };
 
-  useEffect(refresh, [refreshKey]);
+  useEffect(refresh, [refreshKey, projectId]);
 
   const load = async (id: string) => {
     const res = await fetch(`/api/sessions/${id}`);

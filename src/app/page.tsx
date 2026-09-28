@@ -15,6 +15,7 @@ import { Scoreboard, emptyScoreboard, type ScoreboardData } from "@/components/S
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SettingsModal } from "@/components/SettingsModal";
 import { SessionSidebar } from "@/components/SessionSidebar";
+import { NewProjectModal } from "@/components/NewProjectModal";
 
 interface CompletedFlow {
   totalMs: number;
@@ -47,16 +48,42 @@ interface AppShellProps {
   onOpenSettings: () => void;
   trackFlowA?: FlowState;
   trackFlowB?: FlowState;
+  projects: Project[];
+  currentProjectId?: string;
+  onProjectSelect: (id: string) => void;
+  onNewProject: () => void;
 }
 
-function AppShell({ children, onOpenSettings, trackFlowA, trackFlowB }: AppShellProps) {
+function AppShell({ children, onOpenSettings, trackFlowA, trackFlowB, projects, currentProjectId, onProjectSelect, onNewProject }: AppShellProps) {
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
       <header className="shrink-0 border-b border-line bg-panel">
         <div className="flex h-14 items-center justify-between px-4 sm:px-6">
-          <div className="flex items-baseline gap-2.5">
+          <div className="flex min-w-0 items-baseline gap-2.5">
             <h1 className="font-display text-base font-bold tracking-tight text-ink">Flow Race</h1>
-            <span className="hidden font-mono text-xs text-muted sm:inline">LLM vs Jev triage</span>
+            <span className="hidden font-mono text-xs text-muted sm:inline">LLM vs Jev</span>
+            {projects.length > 0 && (
+              <span className="hidden min-w-0 items-baseline gap-1.5 md:inline-flex">
+                <select
+                  value={currentProjectId ?? ""}
+                  onChange={(e) => onProjectSelect(e.target.value)}
+                  aria-label="Current project"
+                  className="max-w-44 truncate rounded-md border border-line bg-paper px-2 py-1 font-mono text-xs text-ink-soft focus:border-accent-b/50 focus:outline-none"
+                >
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={onNewProject}
+                  title="New project"
+                  aria-label="New project"
+                  className="flex h-6 w-6 items-center justify-center rounded-md border border-line font-mono text-xs text-ink-soft transition-colors hover:border-accent-b hover:text-accent-b"
+                >
+                  +
+                </button>
+              </span>
+            )}
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <button
@@ -96,22 +123,47 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [project, setProject] = useState<Project | null>(null);
 
-  const loadProject = useCallback(async (id?: string) => {
-    const res = await fetch(id ? `/api/projects/${id}` : "/api/projects").then((r) => r.json());
-    return (res.project ?? res.projects?.[0]) as Project | undefined;
+  const loadProject = useCallback(async (id: string) => {
+    const res = await fetch(`/api/projects/${id}`).then((r) => r.json());
+    return res.project as Project | undefined;
   }, []);
 
+  const switchProject = useCallback(async (id: string) => {
+    const p = await loadProject(id);
+    if (!p) return;
+    projectIdRef.current = p.id;
+    setProject(p);
+    setViewingSession(null);
+    setViewingSchema(null);
+    setBannerError(null);
+    completedRef.current = {};
+    setFlowA(emptyFlowState());
+    setFlowB(emptyFlowState());
+    setScoreboard(emptyScoreboard());
+    setHistoryVersion((v) => v + 1);
+    setSingleText("");
+  }, [loadProject]);
+
   const projectIdRef = useRef<string | null>(null);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
+
+  const refreshProjects = useCallback(async (selectId?: string) => {
+    const data = await fetch("/api/projects").then((r) => r.json());
+    const list = (data.projects ?? []) as Project[];
+    setProjects(list);
+    const target = list.find((p) => p.id === (selectId ?? projectIdRef.current)) ?? list[0];
+    if (target) {
+      projectIdRef.current = target.id;
+      setProject(target);
+    }
+  }, []);
+
   useEffect(() => {
     if (projectIdRef.current) return;
     projectIdRef.current = "pending";
-    void loadProject().then((p) => {
-      if (p) {
-        projectIdRef.current = p.id;
-        setProject(p);
-      } else projectIdRef.current = null;
-    });
-  }, [loadProject]);
+    void refreshProjects();
+  }, [refreshProjects]);
 
   // Scoreboard is fully server-derived from persisted sessions — the client
   // never tallies locally, so counts can never drift after a reload.
@@ -233,7 +285,7 @@ export default function Home() {
       }
       case "run_done": {
         setSingleRunning(false);
-        void refreshScoreboard(project?.id);
+        void refreshScoreboard(projectIdRef.current ?? project?.id);
         break;
       }
     }
@@ -329,12 +381,19 @@ export default function Home() {
       onSelect={loadSession}
       onNew={() => resetLiveView(true)}
       refreshKey={historyVersion}
+      projectId={project?.id}
     />
   );
 
   if (viewingSession) {
     return (
-      <AppShell onOpenSettings={() => setSettingsOpen(true)}>
+      <AppShell
+        onOpenSettings={() => setSettingsOpen(true)}
+        projects={projects}
+        currentProjectId={project?.id}
+        onProjectSelect={(id) => void switchProject(id)}
+        onNewProject={() => setNewProjectOpen(true)}
+      >
         <div className="hidden min-h-0 sm:flex sm:items-stretch">{sidebar}</div>
         <div className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-[1400px] px-6 pb-16 pt-8 sm:px-10 lg:px-16">
@@ -395,7 +454,7 @@ export default function Home() {
           </div>
         </div>
 
-        <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+        <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} project={project} onProjectChange={() => void refreshProjects()} />
       </AppShell>
     );
   }
@@ -405,6 +464,10 @@ export default function Home() {
       onOpenSettings={() => setSettingsOpen(true)}
       trackFlowA={flowA}
       trackFlowB={flowB}
+      projects={projects}
+      currentProjectId={project?.id}
+      onProjectSelect={(id) => void switchProject(id)}
+      onNewProject={() => setNewProjectOpen(true)}
     >
       <div className="hidden min-h-0 sm:flex sm:items-stretch">{sidebar}</div>
 
@@ -468,7 +531,12 @@ export default function Home() {
         </div>
       </div>
 
-      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} project={project} onProjectChange={() => void refreshProjects()} />
+      <NewProjectModal
+        open={newProjectOpen}
+        onClose={() => setNewProjectOpen(false)}
+        onCreated={(id) => void refreshProjects(id)}
+      />
     </AppShell>
   );
 }
