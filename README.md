@@ -1,7 +1,7 @@
 # Flow Race
 
-Race two support-ticket triage pipelines side by side on one pasted input. Paste raw
-ticket text (an email, chat transcript, complaint…), press **Run Race**, and watch both
+Race three support-ticket triage pipelines side by side on one pasted input. Paste raw
+ticket text (an email, chat transcript, complaint…), press **Run Race**, and watch all three
 columns fill in live over a single NDJSON stream. Every number on screen is real:
 API-reported token usage, measured milliseconds, and cost computed from real rates.
 There is no mock data anywhere — if an API fails, that column shows a designed error
@@ -9,11 +9,11 @@ state instead of invented results.
 
 **Features:** dynamic DB-backed taxonomy & settings (edit categories/priorities/routes,
 system prompt, business context — no restarts), per-flow **transparency layer**
-(Flow A shows the LLM's own reasoning, Flow B shows Jev's calibrated match signals),
+(Flow A shows the LLM's own reasoning; B and C show independent match signals),
 per-step cost/latency/token breakdown, persistent session history with delete, light/dark
 theme, and legible cost computation (rates are visible constants, not hidden env vars).
 
-## The two flows
+## The three flows
 
 **Flow A — LLM tool-call**
 
@@ -34,18 +34,28 @@ theme, and legible cost computation (rates are visible constants, not hidden env
    match confidence. Jev evaluates all questions in parallel, so the extra probes add
    almost no latency.
 2. A chained LLM call drafts the reply **only** — handed Jev's decisions, explicitly
-   forbidden from re-deriving them.
+    forbidden from re-deriving them.
+
+**Flow C — local GLiNER + LLM hybrid**
+
+1. [GLiNER2.5-Decide](https://huggingface.co/fastino/GLiNER2.5-Decide) runs on your
+   laptop. It classifies the same four fields from the current taxonomy; independent
+   yes/no heads evaluate the same category, route, priority, and cross-cutting clues
+   as Flow B. Its 0–4 sentiment level maps to −1..1. Confidence is the model's
+   classification probability; for clues it represents the probability of **yes**.
+2. The **same** reply-only LLM call as Flow B drafts the customer reply from GLiNER's
+   decisions. Local classification incurs no API cost; reply tokens are billed normally.
+   If the local server is offline, only Flow C shows an error; A and B finish as usual.
 
 ## Why it's interesting
 
-| Concern | Flow A (LLM-only) | Flow B (Jev + LLM) |
-| --- | --- | --- |
-| Latency | classification wait for tool-call completion | Jev answers in ~0.5 s (all questions parallel) |
-| Cost | kimi-k3 tokens for both steps | kimi-k3 only for the reply; Jev classification is ~71× cheaper per input token, output free |
-| Reliability | LLM may emit malformed JSON → parseErrors/retries | Jev returns typed answers; structurally impossible to fail parsing |
-| Transparency | LLM's own prose reasoning (uncalibrated but insightful) | Calibrated per-option match probabilities + mismatch flags |
+| Concern | Flow A (LLM-only) | Flow B (Jev + LLM) | Flow C (GLiNER + LLM) |
+| --- | --- | --- | --- |
+| Classifier | Remote LLM tool-call | Remote Jev API | Local GLiNER2.5-Decide |
+| Cost | LLM classification + reply | Jev classification + LLM reply | Free local classification + LLM reply |
+| Transparency | LLM prose reasoning | Jev yes/no clue probabilities | GLiNER yes/no clue probabilities |
 
-Both flows stream live over the same NDJSON channel; the UI shows per-step
+All three flows stream live over the same NDJSON channel; the UI shows per-step
 engine-labelled metric lines (which engine, which tokens, how long, how much).
 
 ## Setup
@@ -56,17 +66,36 @@ cp .env.example .env.local   # then fill in keys
 npm run dev                  # http://localhost:3000
 ```
 
+### Local GLiNER server (Flow C)
+
+From the project root, in a **second terminal**:
+
+```bash
+python3 -m venv .venv-gliner
+.venv-gliner/bin/pip install torch --index-url https://download.pytorch.org/whl/cpu
+.venv-gliner/bin/pip install -r scripts/requirements-gliner.txt
+.venv-gliner/bin/python scripts/gliner_server.py
+```
+
+The first start downloads the `fastino/GLiNER2.5-Decide` checkpoint from Hugging Face
+and can take a few minutes. CPU works; on a GPU laptop install a compatible PyTorch
+build instead of the CPU wheel. Check `http://127.0.0.1:8100/health` before starting
+a race. The server binds to loopback only. Keep it running while using Flow C. If the
+Next.js app is on a different machine, arrange a private tunnel and set `GLINER_URL`
+in that app's `.env.local`; the browser never connects to GLiNER directly.
+
 ### Keys
 
 | Key | Needed for | Where to get it |
 | --- | --- | --- |
 | `TYPESAFE_API_KEY` | Flow B (Jev) | https://console.typesafe.ai/keys |
-| `LLM_API_KEY` | Both flows (LLM calls) | your OpenAI-compatible gateway; falls back to `JUSPAY_API_KEY`, then `ANTHROPIC_API_KEY` |
+| `LLM_API_KEY` | All three flows (LLM calls) | your OpenAI-compatible gateway; falls back to `JUSPAY_API_KEY`, then `ANTHROPIC_API_KEY` |
 | `ANTHROPIC_API_KEY` | optional LLM fallback | https://console.anthropic.com |
 
 Without `TYPESAFE_API_KEY` the app still works: Flow B's column renders a designed
 "TypeSafe API key needed" card (the error travels through the stream as data — the
 route never crashes, Flow A is unaffected).
+Without a local GLiNER server, Flow C shows a similar error and A/B continue.
 
 ### Pricing
 
@@ -90,7 +119,7 @@ number.
 per line:
 
 ```ts
-{type:"step_start", flow:"A"|"B", step:"classification"|"reply", at:number}
+{type:"step_start", flow:"A"|"B"|"C", step:"classification"|"reply", at:number}
 {type:"step_done",  flow, step:"classification", ms, data:TicketAnalysis, metrics}
 {type:"step_done",  flow, step:"reply", ms, reply:string, metrics}
 {type:"flow_done",  flow, totalMs, totals:{inputTokens,outputTokens,costUsd,parseErrors}}
@@ -99,7 +128,7 @@ per line:
 ```
 
 `TicketAnalysis` carries the flow-specific transparency field (`reasoning` for A,
-`signals` + `signalMismatch` for B — never both).
+`signals` + `signalMismatch` for B/C — never both).
 
 Try it:
 
@@ -122,7 +151,7 @@ model:   process.env.LLM_MODEL ?? "kimi-k3",
 
 Point `LLM_BASE_URL`/`LLM_API_KEY`/`LLM_MODEL` at any OpenAI-compatible
 chat-completions endpoint (Anthropic's gateway, OpenAI itself, a local vLLM, …) and
-both LLM steps use it. If you move to a non-OpenAI wire protocol, `chatCompletion()`
+all LLM steps use it. If you move to a non-OpenAI wire protocol, `chatCompletion()`
 is the single function to reimplement; `classifyTicket`, `draftReply`, and
 `draftReplyOnly` are protocol-agnostic.
 
