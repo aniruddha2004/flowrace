@@ -4,8 +4,7 @@ import { useState } from "react";
 import type { SignalMismatch, TicketSignals } from "@/lib/schema";
 import { ACCENT, type Accent } from "./FieldRow";
 
-// Jev's native "why": per-option match probabilities (noul answers), and three
-// fixed cross-cutting probes. Shown collapsed to winner + runner-up per field.
+// Independent content checks, collapsed to winner + runner-up per field.
 
 const CROSS_LABELS: Record<string, string> = {
   multiple_distinct_issues_present: "multiple distinct issues",
@@ -24,10 +23,12 @@ function SignalBar({
   label,
   confidence,
   highlight,
+  accent,
 }: {
   label: string;
   confidence: number;
   highlight: boolean;
+  accent: Accent;
 }) {
   const pct = Math.round(Math.min(1, Math.max(0, confidence)) * 100);
   return (
@@ -43,7 +44,7 @@ function SignalBar({
       <div className="relative mt-1 h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-track sm:w-20">
         <div
           className={`absolute inset-y-0 left-0 rounded-full transition-[width] duration-500 ease-out ${
-            highlight ? ACCENT.b.barBg : "bg-ink/20"
+             highlight ? ACCENT[accent].barBg : "bg-ink/20"
           }`}
           style={{ width: `${pct}%` }}
         />
@@ -61,12 +62,14 @@ function FieldSignals({
   signals,
   winners,
   mismatch,
+  accent,
 }: {
   field: "category" | "priority" | "route_to_team";
   label: string;
   signals: TicketSignals;
   winners: Record<string, string>;
   mismatch: SignalMismatch;
+  accent: Accent;
 }) {
   const [showAll, setShowAll] = useState(false);
   const entries = Object.entries(signals[field]);
@@ -101,11 +104,11 @@ function FieldSignals({
         )}
       </div>
       {rows.map(([key, sig]) => (
-        <SignalBar key={key} label={pretty(key)} confidence={sig.confidence} highlight={key === winnerEntry[0]} />
+        <SignalBar key={key} label={pretty(key)} confidence={sig.confidence} highlight={key === winnerEntry[0]} accent={accent} />
       ))}
       {showAll &&
         hidden.map(([key, sig]) => (
-          <SignalBar key={key} label={pretty(key)} confidence={sig.confidence} highlight={false} />
+          <SignalBar key={key} label={pretty(key)} confidence={sig.confidence} highlight={false} accent={accent} />
         ))}
       {hidden.length > 0 && (
         <button
@@ -147,6 +150,7 @@ export function SignalsPanel({
           signals={signals}
           winners={winners}
           mismatch={mismatch}
+          accent={accent}
         />
       ))}
       {cross.length > 0 && (
@@ -160,6 +164,7 @@ export function SignalsPanel({
               label={CROSS_LABELS[key] ?? key}
               confidence={sig.confidence}
               highlight={sig.match}
+              accent={accent}
             />
           ))}
         </div>

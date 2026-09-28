@@ -116,9 +116,11 @@ function ErrorCard({ state }: { state: FlowState }) {
 function SignalsExplainer({
   open,
   onClose,
+  engine,
 }: {
   open: boolean;
   onClose: () => void;
+  engine: "Jev" | "GLiNER";
 }) {
   if (!open) return null;
   return (
@@ -148,7 +150,7 @@ function SignalsExplainer({
           </li>
           <li>
             <strong className="text-ink">The number (0–100)</strong> is how
-            confident Jev is that this specific clue is true of the ticket —
+            confident {engine} is that this specific clue is true of the ticket —
             not its confidence in the overall category / priority / route.
           </li>
           <li>
@@ -164,9 +166,10 @@ function SignalsExplainer({
           </li>
         </ul>
         <p className="border-t border-line px-5 py-3 font-mono text-[11px] leading-relaxed text-muted">
-          These are Jev&apos;s native per-question answers from the same pass
-          that made the decision — real independent checks, not text
-          generated to sound like reasoning.
+          {engine === "Jev"
+            ? "Jev’s native per-question answers from the same pass that made the decision."
+            : "GLiNER’s independent yes/no classifications; scores reflect its confidence in each answer."}
+          {" "}These are model predictions, not generated explanations.
         </p>
       </div>
     </div>
@@ -218,7 +221,7 @@ function WhySection({ accent, state }: { accent: Accent; state: FlowState }) {
           </button>
         )}
       </div>
-      {signals && <SignalsExplainer open={info} onClose={() => setInfo(false)} />}
+      {signals && <SignalsExplainer open={info} onClose={() => setInfo(false)} engine={accent === "c" ? "GLiNER" : "Jev"} />}
       {open && (
         <div className="animate-rise mt-2">
           {reasoning ? (
@@ -295,7 +298,7 @@ export function FlowColumn({ accent, title, subtitle, state, fieldsAgree }: Flow
 
   return (
     <section className="flex flex-col overflow-hidden rounded-xl border border-line bg-panel">
-      <header className={`flex items-start justify-between gap-3 border-b border-line p-5 ${accent === "a" ? "bg-accent-a-soft/40" : "bg-accent-b-soft/40"}`}>
+      <header className={`flex items-start justify-between gap-3 border-b border-line p-5 ${accent === "a" ? "bg-accent-a-soft/40" : accent === "b" ? "bg-accent-b-soft/40" : "bg-accent-c-soft/40"}`}>
         <div className="flex min-w-0 items-start gap-3">
           <span aria-hidden className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${a.dotBg}`} />
           <div className="min-w-0">
@@ -373,7 +376,7 @@ export function FlowColumn({ accent, title, subtitle, state, fieldsAgree }: Flow
           <div className="mb-2 space-y-0.5 border-b border-line pb-2 font-mono text-[11px] tabular-nums">
             {state.classificationMetrics && (
               <MetricLine
-                engine={accent === "b" ? "Jev" : "LLM"}
+                 engine={accent === "b" ? "Jev" : accent === "c" ? "GLiNER" : "LLM"}
                 step="classify"
                 ms={state.classification.ms}
                 metrics={state.classificationMetrics}
@@ -424,7 +427,7 @@ function MetricLine({
   metrics,
   highlight,
 }: {
-  engine: "Jev" | "LLM";
+  engine: "Jev" | "GLiNER" | "LLM";
   step: "classify" | "reply";
   ms?: number;
   metrics: { inputTokens: number; outputTokens: number; costUsd: number };
@@ -434,14 +437,16 @@ function MetricLine({
     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-ink-soft">
       <span
         className={`shrink-0 rounded px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide ${
-          engine === "Jev" ? "bg-accent-b-soft text-accent-b" : `${ACCENT[highlight].softBg} ${ACCENT[highlight].text}`
+           engine === "Jev" ? "bg-accent-b-soft text-accent-b" : `${ACCENT[highlight].softBg} ${ACCENT[highlight].text}`
         }`}
       >
         {engine}
       </span>
       <span className="w-14 shrink-0 text-muted sm:w-16">{step}</span>
       <span className="min-w-0 break-words text-ink">
-        {fmtTokens(metrics.inputTokens)} in / {fmtTokens(metrics.outputTokens)} out
+        {engine === "GLiNER"
+          ? "local inference · no billed tokens"
+          : `${fmtTokens(metrics.inputTokens)} in / ${fmtTokens(metrics.outputTokens)} out`}
       </span>
       <span className="text-muted">·</span>
       <span className="text-ink">{fmtCost(metrics.costUsd)}</span>
@@ -457,6 +462,8 @@ function RatesInfo({ accent }: { accent: Accent }) {
   const lines =
     accent === "b"
       ? [`Jev — $${j.inputPerM}/M in · free out`, `kimi-k3 (reply only) — $${k.inputPerM}/M in · $${k.outputPerM}/M out`]
+      : accent === "c"
+        ? ["Local GLiNER classification — $0", `kimi-k3 (reply only) — $${k.inputPerM}/M in · $${k.outputPerM}/M out`]
       : [`kimi-k3 — $${k.inputPerM}/M in · $${k.outputPerM}/M out`];
   return (
     <span
