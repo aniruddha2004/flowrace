@@ -19,12 +19,13 @@ interface SettingsModalProps {
   onClose: () => void;
 }
 
-type TabId = "context" | "prompt" | "taxonomy";
+type TabId = "context" | "prompt" | "taxonomy" | "models";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "context", label: "Business context" },
   { id: "prompt", label: "System prompt" },
   { id: "taxonomy", label: "Taxonomy editor" },
+  { id: "models", label: "Models" },
 ];
 
 export function SettingsModal({ open, onClose }: SettingsModalProps) {
@@ -123,6 +124,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
               onChange={(t) => setConfig((c) => (c ? { ...c, taxonomy: t } : c))}
             />
           )}
+          {tab === "models" && open && <ModelsTab />}
         </div>
       </div>
     </div>
@@ -441,6 +443,231 @@ function TaxonomyRow({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Models tab — registry management (add/edit/delete). Not a flow builder.
+// ---------------------------------------------------------------------------
+
+interface ModelRow {
+  id: string;
+  name: string;
+  adapterType: "llm_chat" | "system_one" | "custom_http";
+  apiConfig: { apiBase: string; apiKeyEnvVar: string; modelId?: string };
+  pricing: { inputPerM: number; outputPerM: number; outputFree: boolean };
+}
+
+function ModelsTab() {
+  const [models, setModels] = useState<ModelRow[] | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [err, setErr] = useState("");
+
+  const reload = async () => {
+    const res = await fetch("/api/models");
+    const data = (await res.json()) as { models: ModelRow[] };
+    setModels(data.models);
+  };
+
+  useEffect(() => {
+    fetch("/api/models")
+      .then((r) => r.json())
+      .then((d: { models: ModelRow[] }) => setModels(d.models));
+  }, []);
+
+  if (!models) return <p className="text-sm text-muted">Loading…</p>;
+  return (
+    <div>
+      <div className="mb-3 flex items-center justify-between">
+        <div>
+          <h3 className="font-display text-sm font-semibold text-ink">Model registry</h3>
+          <p className="mt-0.5 text-xs text-muted">
+            Endpoints the platform can call. API keys come from the named env var.
+          </p>
+        </div>
+        <button
+          onClick={() => setAdding((a) => !a)}
+          className="rounded-md border border-line px-3 py-1.5 font-mono text-xs text-ink-soft transition-colors hover:border-ink/30 hover:text-ink"
+        >
+          {adding ? "Cancel" : "+ Add"}
+        </button>
+      </div>
+      {err && <p className="mb-2 text-sm text-rose-600 dark:text-rose-400">{err}</p>}
+      {adding && (
+        <ModelForm
+          onDone={async (body, isEdit) => {
+            const res = await fetch(isEdit ? `/api/models/${(body as { id: string }).id}` : "/api/models", {
+              method: isEdit ? "PATCH" : "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            });
+            if (!res.ok) {
+              setErr(((await res.json()) as { error?: string }).error ?? "Failed.");
+              return;
+            }
+            setErr("");
+            setAdding(false);
+            void reload();
+          }}
+        />
+      )}
+      <div className="divide-y divide-line rounded-lg border border-line">
+        {models.map((m) => (
+          <ModelItem key={m.id} model={m} onChanged={() => void reload()} onError={setErr} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ModelForm({
+  model,
+  onDone,
+}: {
+  model?: ModelRow;
+  onDone: (body: Record<string, unknown>, isEdit: boolean) => Promise<void> | void;
+}) {
+  const [id, setId] = useState(model?.id ?? "");
+  const [name, setName] = useState(model?.name ?? "");
+  const [adapterType, setAdapterType] = useState<ModelRow["adapterType"]>(model?.adapterType ?? "llm_chat");
+  const [apiBase, setApiBase] = useState(model?.apiConfig.apiBase ?? "");
+  const [apiKeyEnvVar, setApiKeyEnvVar] = useState(model?.apiConfig.apiKeyEnvVar ?? "");
+  const [modelId, setModelId] = useState(model?.apiConfig.modelId ?? "");
+  const [inputPerM, setInputPerM] = useState(String(model?.pricing.inputPerM ?? ""));
+  const [outputPerM, setOutputPerM] = useState(String(model?.pricing.outputPerM ?? ""));
+  const valid =
+    (model ? true : id.trim()) &&
+    name.trim() &&
+    apiBase.trim() &&
+    apiKeyEnvVar.trim() &&
+    (adapterType === "custom_http" || modelId.trim()) &&
+    !Number.isNaN(Number(inputPerM)) &&
+    !Number.isNaN(Number(outputPerM));
+  const submit = () => {
+    void onDone(
+      {
+        ...(model ? {} : { id: id.trim() }),
+        name: name.trim(),
+        adapterType,
+        apiConfig: { apiBase: apiBase.trim(), apiKeyEnvVar: apiKeyEnvVar.trim(), modelId: modelId.trim() },
+        pricing: {
+          inputPerM: Number(inputPerM),
+          outputPerM: Number(outputPerM),
+          outputFree: Number(outputPerM) === 0,
+        },
+      },
+      Boolean(model),
+    );
+  };
+  const inputCls =
+    "rounded-md border border-line bg-panel px-3 py-2 font-mono text-sm text-ink placeholder:text-muted focus:border-accent-b/50 focus:outline-none";
+  return (
+    <div className="animate-rise mb-3 rounded-lg border border-line bg-paper p-4">
+      <div className="grid gap-3 sm:grid-cols-2">
+        {!model && (
+          <input value={id} onChange={(e) => setId(e.target.value.toLowerCase())} placeholder="model_id" className={inputCls} />
+        )}
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Display name" className={inputCls} />
+        <select
+          value={adapterType}
+          onChange={(e) => setAdapterType(e.target.value as ModelRow["adapterType"])}
+          className={inputCls}
+        >
+          <option value="llm_chat">llm_chat</option>
+          <option value="system_one">system_one</option>
+          <option value="custom_http">custom_http</option>
+        </select>
+        <input value={modelId} onChange={(e) => setModelId(e.target.value)} placeholder="Model id (e.g. kimi-k3)" className={inputCls} />
+        <input value={apiBase} onChange={(e) => setApiBase(e.target.value)} placeholder="API base URL" className={`${inputCls} sm:col-span-2`} />
+        <input value={apiKeyEnvVar} onChange={(e) => setApiKeyEnvVar(e.target.value)} placeholder="API key env var (e.g. LLM_API_KEY)" className={inputCls} />
+        <div className="grid grid-cols-2 gap-3">
+          <input value={inputPerM} onChange={(e) => setInputPerM(e.target.value)} placeholder="$/M input" className={inputCls} />
+          <input value={outputPerM} onChange={(e) => setOutputPerM(e.target.value)} placeholder="$/M output" className={inputCls} />
+        </div>
+      </div>
+      <span title={!valid ? "All fields are required" : undefined} className="mt-3 inline-block">
+        <button
+          onClick={submit}
+          disabled={!valid}
+          className="rounded-lg bg-ink px-4 py-2 font-display text-sm font-medium text-paper transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {model ? "Save" : "Add model"}
+        </button>
+      </span>
+    </div>
+  );
+}
+
+function ModelItem({
+  model,
+  onChanged,
+  onError,
+}: {
+  model: ModelRow;
+  onChanged: () => void;
+  onError: (e: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const handleDelete = async () => {
+    if (!confirm(`Delete model "${model.id}"?`)) return;
+    const res = await fetch(`/api/models/${model.id}`, { method: "DELETE" });
+    if (!res.ok) {
+      onError(((await res.json()) as { error?: string }).error ?? "Failed.");
+      return;
+    }
+    onChanged();
+  };
+  return (
+    <div className="px-4 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <code className="max-w-full break-all rounded bg-track px-1.5 py-0.5 font-mono text-xs text-ink-soft">
+              {model.id}
+            </code>
+            <span className="font-display text-sm font-medium text-ink">{model.name}</span>
+            <span className="rounded-md bg-accent-a-soft px-2 py-0.5 font-mono text-[10px] font-semibold uppercase text-accent-a">
+              {model.adapterType}
+            </span>
+          </div>
+          <p className="mt-1 break-all font-mono text-xs text-muted">
+            {model.apiConfig.apiBase} · {model.apiConfig.modelId} · key: {model.apiConfig.apiKeyEnvVar} · ${model.pricing.inputPerM}/M in · ${model.pricing.outputPerM}/M out
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            onClick={() => setEditing((e) => !e)}
+            className="rounded px-2 py-1 font-mono text-xs text-ink-soft transition-colors hover:bg-track hover:text-ink"
+          >
+            {editing ? "Cancel" : "Edit"}
+          </button>
+          <button
+            onClick={() => void handleDelete()}
+            aria-label={`Delete ${model.id}`}
+            className="rounded px-2 py-1 font-mono text-xs text-rose-600 transition-colors hover:bg-rose-50 dark:hover:bg-rose-950/40"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+      {editing && (
+        <div className="mt-2">
+          <ModelForm model={model} onDone={async (b) => {
+            const res = await fetch(`/api/models/${model.id}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(b),
+            });
+            if (!res.ok) {
+              onError(((await res.json()) as { error?: string }).error ?? "Failed.");
+              return;
+            }
+            setEditing(false);
+            onChanged();
+          }} />
+        </div>
+      )}
     </div>
   );
 }
