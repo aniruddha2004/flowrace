@@ -297,8 +297,8 @@ export function FlowColumn({ accent, title, subtitle, state, fieldsAgree }: Flow
   ];
 
   return (
-    <section className="flex flex-col overflow-hidden rounded-xl border border-line bg-panel">
-      <header className={`flex items-start justify-between gap-3 border-b border-line p-5 ${accent === "a" ? "bg-accent-a-soft/40" : accent === "b" ? "bg-accent-b-soft/40" : "bg-accent-c-soft/40"}`}>
+    <section className="@container flex flex-col overflow-hidden rounded-xl border border-line bg-panel">
+      <header className={`flex min-h-[170px] items-start justify-between gap-3 border-b border-line p-5 @min-[320px]:min-h-[150px] @min-[350px]:min-h-[126px] @min-[465px]:min-h-[106px] ${accent === "a" ? "bg-accent-a-soft/40" : accent === "b" ? "bg-accent-b-soft/40" : "bg-accent-c-soft/40"}`}>
         <div className="flex min-w-0 items-start gap-3">
           <span aria-hidden className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${a.dotBg}`} />
           <div className="min-w-0">
