@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { getDb, seed } from "./db";
-import type { Taxonomy } from "./taxonomy";
+import { getDb } from "./db";
+import type { Taxonomy } from "./projects";
 
 // ---------------------------------------------------------------------------
 // Session persistence. Input and result are stored as JSON strings; the
@@ -8,7 +8,7 @@ import type { Taxonomy } from "./taxonomy";
 // deleting an option later doesn't break historical lookups.
 // ---------------------------------------------------------------------------
 
-seed();
+
 
 export type SessionType = "single" | "bulk";
 

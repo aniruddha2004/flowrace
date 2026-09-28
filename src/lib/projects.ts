@@ -50,9 +50,6 @@ function toProject(r: {
   };
 }
 
-function parseSchema(raw: string): OutputSchema {
-  return JSON.parse(raw) as OutputSchema;
-}
 
 export function listProjects(): Project[] {
   const d = getDb();
@@ -173,4 +170,124 @@ export function seedProjects(): void {
 export function seedPlatform(): void {
   seedModels();
   seedProjects();
+}
+
+// ---------------------------------------------------------------------------
+// Taxonomy projection — presentation shape consumed by the settings UI and
+// sessions taxonomy_snapshot. Options are addressed by `fieldKey:optionKey`.
+// ---------------------------------------------------------------------------
+
+export type TaxonomyFieldKey = "category" | "priority" | "route_to_team";
+
+export interface TaxonomyOption {
+  id: string;
+  key: string;
+  label: string;
+  description: string;
+  sortOrder: number;
+}
+
+export interface Taxonomy {
+  category: TaxonomyOption[];
+  priority: TaxonomyOption[];
+  route_to_team: TaxonomyOption[];
+}
+
+export function taxonomyFromProject(project: Project): Taxonomy {
+  const out: Taxonomy = { category: [], priority: [], route_to_team: [] };
+  for (const field of project.outputSchema) {
+    if (field.key === "category" || field.key === "priority" || field.key === "route_to_team") {
+      out[field.key] = (field.options ?? []).map((o, i) => ({
+        id: `${field.key}:${o.key}`,
+        key: o.key,
+        label: o.label,
+        description: o.description,
+        sortOrder: i,
+      }));
+    }
+  }
+  return out;
+}
+
+const KEY_RE = /^[a-z][a-z0-9_-]*$/;
+
+export function addTaxonomyOption(
+  projectId: string,
+  field: TaxonomyFieldKey,
+  input: { key: string; label: string; description?: string },
+): { ok: true; option: TaxonomyOption } | { ok: false; error: string } {
+  const project = getProject(projectId);
+  if (!project) return { ok: false, error: "Project not found." };
+  const key = input.key.trim();
+  if (!KEY_RE.test(key)) {
+    return { ok: false, error: "Key must be lowercase letters, digits, dashes, or underscores, starting with a letter." };
+  }
+  if (!input.label.trim()) return { ok: false, error: "Label is required." };
+  const schema = project.outputSchema.map((f) => ({ ...f }));
+  const target = schema.find((f) => f.key === field);
+  if (!target || target.type !== "enum") return { ok: false, error: `Field "${field}" is not an enum.` };
+  target.options = target.options ?? [];
+  if (target.options.some((o) => o.key === key)) {
+    return { ok: false, error: `Option "${key}" already exists.` };
+  }
+  target.options.push({ key, label: input.label.trim(), description: (input.description ?? "").trim() });
+  updateProject(projectId, { outputSchema: schema });
+  return {
+    ok: true,
+    option: {
+      id: `${field}:${key}`,
+      key,
+      label: input.label.trim(),
+      description: (input.description ?? "").trim(),
+      sortOrder: target.options.length - 1,
+    },
+  };
+}
+
+export function updateTaxonomyOption(
+  projectId: string,
+  compositeId: string,
+  patch: Partial<{ label: string; description: string; sortOrder: number }>,
+): { ok: true } | { ok: false; error: string } {
+  const project = getProject(projectId);
+  if (!project) return { ok: false, error: "Project not found." };
+  const [field, key] = compositeId.split(":");
+  const targetIdx = project.outputSchema.findIndex((f) => f.key === field);
+  if (targetIdx === -1) return { ok: false, error: "Option not found." };
+  const schema = project.outputSchema.map((f) => ({ ...f, options: f.options?.map((o) => ({ ...o })) }));
+  const opts = schema[targetIdx].options ?? [];
+  const idx = opts.findIndex((o) => o.key === key);
+  if (idx === -1) return { ok: false, error: "Option not found." };
+  if (patch.label !== undefined) {
+    if (!patch.label.trim()) return { ok: false, error: "Label cannot be empty." };
+    opts[idx].label = patch.label.trim();
+  }
+  if (patch.description !== undefined) opts[idx].description = patch.description.trim();
+  if (patch.sortOrder !== undefined && schema[targetIdx].options) {
+    const [item] = opts.splice(idx, 1);
+    opts.splice(Math.min(patch.sortOrder, opts.length), 0, item);
+  }
+  schema[targetIdx].options = opts;
+  updateProject(projectId, { outputSchema: schema });
+  return { ok: true };
+}
+
+export function deleteTaxonomyOption(
+  projectId: string,
+  compositeId: string,
+): { ok: true } | { ok: false; error: string } {
+  const project = getProject(projectId);
+  if (!project) return { ok: false, error: "Project not found." };
+  const [field, key] = compositeId.split(":");
+  const schema = project.outputSchema.map((f) => ({
+    ...f,
+    options: f.options?.filter((o) => !(f.key === field && o.key === key)),
+  }));
+  const targetIdx = schema.findIndex((f) => f.key === field);
+  if (targetIdx === -1) return { ok: false, error: "Option not found." };
+  if (schema[targetIdx].options && schema[targetIdx].options.length === project.outputSchema[targetIdx].options?.length) {
+    return { ok: false, error: "Option not found." };
+  }
+  updateProject(projectId, { outputSchema: schema });
+  return { ok: true };
 }

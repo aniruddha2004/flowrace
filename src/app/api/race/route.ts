@@ -1,14 +1,12 @@
 import { encodeEvent, type FlowId, type RaceEvent, type StepId } from "@/lib/events";
-import { JevAuthError, JevError, classifyWithJev } from "@/lib/jev";
-import {
-  LLMError,
-  LLMParseError,
-  classifyTicket,
-  draftReply,
-  draftReplyOnly,
-} from "@/lib/llm";
+import { LLMError, LLMParseError, type LlmChatAdapter } from "@/lib/adapters/llm-chat";
+import { JevAuthError, JevError, type SystemOneAdapter } from "@/lib/adapters/system-one";
+import { classifyTicket, draftReply, draftReplyOnly, type TriageSettings } from "@/lib/flows/llmTriage";
+import { classifyWithJev } from "@/lib/flows/jevTriage";
+import { getDefaultProject, taxonomyFromProject } from "@/lib/projects";
+import { getAdapter } from "@/lib/registry";
 import { saveSession } from "@/lib/sessions";
-import { getSettings, getTaxonomy } from "@/lib/taxonomy";
+import { getSystemPrompt } from "@/lib/settings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -74,8 +72,16 @@ export async function POST(request: Request): Promise<Response> {
   const encoder = new TextEncoder();
   const ticket = text;
 
-  const taxonomy = getTaxonomy();
-  const settings = getSettings();
+  const project = getDefaultProject();
+  const schema = project.outputSchema;
+  const taxonomy = taxonomyFromProject(project);
+  const settings: TriageSettings = {
+    systemPrompt: getSystemPrompt(),
+    businessContext: project.personaContext,
+  };
+  const adapterA = getAdapter("kimi-k3") as LlmChatAdapter;
+  const adapterB = getAdapter("jev") as SystemOneAdapter;
+  const adapterReply = adapterA;
 
   interface FlowResult {
     analysis: import("@/lib/schema").TicketAnalysis;
@@ -124,7 +130,7 @@ export async function POST(request: Request): Promise<Response> {
         stepStart(flow, step);
         try {
           const t0 = performance.now();
-          const cls = await classifyTicket(ticket, taxonomy, settings);
+          const cls = await classifyTicket(ticket, schema, settings, adapterA);
           result.analysis = cls.analysis;
           result.classificationMs = Math.round(performance.now() - t0);
           result.classificationMetrics = {
@@ -146,7 +152,7 @@ export async function POST(request: Request): Promise<Response> {
           stepStart(flow, replyStep);
           try {
             const r0 = performance.now();
-          const rep = await draftReply(ticket, cls.analysis, settings);
+          const rep = await draftReply(ticket, cls.analysis, settings, adapterA);
           result.reply = rep.reply;
           result.replyMs = Math.round(performance.now() - r0);
           result.replyMetrics = {
@@ -198,7 +204,7 @@ export async function POST(request: Request): Promise<Response> {
       stepStart(flow, step);
         try {
           const t0 = performance.now();
-          const cls = await classifyWithJev(ticket, taxonomy, settings);
+          const cls = await classifyWithJev(ticket, schema, settings, adapterB);
           result.analysis = cls.analysis;
           result.classificationMs = Math.round(performance.now() - t0);
           result.classificationMetrics = {
@@ -220,7 +226,7 @@ export async function POST(request: Request): Promise<Response> {
           stepStart(flow, replyStep);
           try {
             const r0 = performance.now();
-          const rep = await draftReplyOnly(ticket, cls.analysis, settings);
+          const rep = await draftReplyOnly(ticket, cls.analysis, settings, adapterReply);
           result.reply = rep.reply;
           result.replyMs = Math.round(performance.now() - r0);
           result.replyMetrics = {

@@ -1,10 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { AppConfig, Taxonomy, TaxonomyOption } from "@/lib/taxonomy";
+import type { Settings } from "@/lib/settings";
+import type { Taxonomy, TaxonomyOption } from "@/lib/projects";
+
+interface AppConfig {
+  settings: Settings;
+  taxonomy: Taxonomy;
+}
 
 // ---------------------------------------------------------------------------
-// SettingsModal — 3 tabs: business context / system prompt / taxonomy editor.
+// SettingsModal — business context / system prompt / taxonomy editor / models.
 // Changes take effect on the VERY NEXT API call (no server restart).
 // ---------------------------------------------------------------------------
 
@@ -283,14 +289,14 @@ function TaxonomySection({
     setNewDesc("");
   };
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = async (id: string) => {
     if (!confirm("Delete this option? Past sessions keep their stored labels.")) return;
     await fetch(`/api/taxonomy/${id}`, { method: "DELETE" });
     onChange(await reload());
   };
 
   const handleUpdate = async (
-    id: number,
+    id: string,
     patch: Partial<{ label: string; description: string }>,
   ) => {
     await fetch(`/api/taxonomy/${id}`, {
@@ -370,8 +376,8 @@ function TaxonomyRow({
   onDelete,
 }: {
   option: TaxonomyOption;
-  onUpdate: (id: number, patch: Partial<{ label: string; description: string }>) => Promise<void>;
-  onDelete: (id: number) => Promise<void>;
+  onUpdate: (id: string, patch: Partial<{ label: string; description: string }>) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [label, setLabel] = useState(option.label);

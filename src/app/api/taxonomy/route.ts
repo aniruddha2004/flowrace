@@ -1,16 +1,18 @@
 import { NextResponse } from "next/server";
 import {
-  TAXONOMY_TYPES,
   addTaxonomyOption,
-  getTaxonomy,
-  type TaxonomyType,
-} from "@/lib/taxonomy";
+  getDefaultProject,
+  taxonomyFromProject,
+  type TaxonomyFieldKey,
+} from "@/lib/projects";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const FIELD_KEYS: TaxonomyFieldKey[] = ["category", "priority", "route_to_team"];
+
 export async function GET(): Promise<NextResponse> {
-  return NextResponse.json({ taxonomy: getTaxonomy() });
+  return NextResponse.json({ taxonomy: taxonomyFromProject(getDefaultProject()) });
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
@@ -26,12 +28,9 @@ export async function POST(request: Request): Promise<NextResponse> {
     label?: unknown;
     description?: unknown;
   };
-  if (
-    typeof taxonomyType !== "string" ||
-    !TAXONOMY_TYPES.includes(taxonomyType as TaxonomyType)
-  ) {
+  if (typeof taxonomyType !== "string" || !FIELD_KEYS.includes(taxonomyType as TaxonomyFieldKey)) {
     return NextResponse.json(
-      { error: `taxonomyType must be one of ${TAXONOMY_TYPES.join(", ")}.` },
+      { error: `taxonomyType must be one of ${FIELD_KEYS.join(", ")}.` },
       { status: 400 },
     );
   }
@@ -41,7 +40,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (typeof label !== "string") {
     return NextResponse.json({ error: "label is required." }, { status: 400 });
   }
-  const result = addTaxonomyOption(taxonomyType as TaxonomyType, {
+  const result = addTaxonomyOption(getDefaultProject().id, taxonomyType as TaxonomyFieldKey, {
     key,
     label,
     description: typeof description === "string" ? description : "",

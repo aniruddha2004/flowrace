@@ -1,11 +1,14 @@
 import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
+import { seedPlatform } from "./projects";
 
 // ---------------------------------------------------------------------------
 // SQLite via better-sqlite3. Singleton per process. The caller (API route)
 // must be running in the Node.js runtime (`export const runtime = "nodejs"`),
-// never edge.
+// never edge. getDb() performs full initialization: schema + legacy seed data
+// + platform (models/projects) seed, then retires the legacy table the
+// project seed consumed.
 // ---------------------------------------------------------------------------
 
 const DB_DIR = path.join(process.cwd(), "data");
@@ -30,16 +33,6 @@ function migrate(d: Database.Database): void {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS taxonomy_options (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      taxonomy_type TEXT NOT NULL CHECK(taxonomy_type IN ('category','priority','route_to_team')),
-      key TEXT NOT NULL,
-      label TEXT NOT NULL,
-      description TEXT NOT NULL,
-      sort_order INTEGER NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      UNIQUE(taxonomy_type, key)
-    );
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
       type TEXT NOT NULL CHECK(type IN ('single','bulk')),
@@ -50,7 +43,6 @@ function migrate(d: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_sessions_created ON sessions(created_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_taxonomy_type ON taxonomy_options(taxonomy_type, sort_order);
     CREATE TABLE IF NOT EXISTS models (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -67,46 +59,46 @@ function migrate(d: Database.Database): void {
       persona_context TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+    -- Legacy table kept as the migration SOURCE for seedPlatform(); dropped
+    -- once the project row has been written.
+    CREATE TABLE IF NOT EXISTS taxonomy_options (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      taxonomy_type TEXT NOT NULL CHECK(taxonomy_type IN ('category','priority','route_to_team')),
+      key TEXT NOT NULL,
+      label TEXT NOT NULL,
+      description TEXT NOT NULL,
+      sort_order INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(taxonomy_type, key)
+    );
   `);
+  seedLegacy(d);
+  seedPlatform();
+  d.exec("DROP TABLE IF EXISTS taxonomy_options");
 }
 
-/** True when the taxonomy table has never been seeded. */
-export function isEmpty(): boolean {
-  const d = getDb();
-  const row = d
-    .prepare("SELECT COUNT(*) AS n FROM taxonomy_options")
-    .get() as { n: number };
-  return row.n === 0;
-}
-
-/** Idempotent seed. Safe to call on every cold start. */
-export function seed(): void {
-  const d = getDb();
-  if (!isEmpty()) return;
-
+// Legacy seed (pre-registry shape). Idempotent — still required on a brand-new
+// DB so the project seed has data to convert.
+function seedLegacy(d: Database.Database): void {
   const insertOption = d.prepare(`
-    INSERT INTO taxonomy_options (taxonomy_type, key, label, description, sort_order)
+    INSERT OR IGNORE INTO taxonomy_options (taxonomy_type, key, label, description, sort_order)
     VALUES (?, ?, ?, ?, ?)
   `);
   const insertSetting = d.prepare(`
     INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)
   `);
-
   const tx = d.transaction(() => {
     const seeds: [string, string, string, string, number][] = [
-      // category
       ["category", "billing", "Billing, payments, invoicing, refunds, charges", "Billing, payments, invoicing, refunds, charges", 0],
       ["category", "bug", "Something is broken, erroring, or behaving incorrectly", "Something is broken, erroring, or behaving incorrectly", 1],
       ["category", "feature_request", "Request for new functionality or improvement", "Request for new functionality or improvement", 2],
       ["category", "churn_risk", "Customer threatens to leave, cancel, or expresses deep dissatisfaction", "Customer threatens to leave, cancel, or expresses deep dissatisfaction", 3],
       ["category", "spam", "Unsolicited marketing, scam, or empty content", "Unsolicited marketing, scam, or empty content", 4],
       ["category", "other", "None of the above", "None of the above", 5],
-      // priority
       ["priority", "low", "General question or nice-to-have; no time pressure", "General question or nice-to-have; no time pressure", 0],
       ["priority", "medium", "Standard issue; customer is inconvenienced but work continues", "Standard issue; customer is inconvenienced but work continues", 1],
       ["priority", "high", "Customer is blocked or very frustrated; needs prompt attention", "Customer is blocked or very frustrated; needs prompt attention", 2],
       ["priority", "urgent", "Outage, security, legal, or financial emergency; drop everything", "Outage, security, legal, or financial emergency; drop everything", 3],
-      // route_to_team
       ["route_to_team", "billing", "Billing", "Payments, invoices, refunds, subscription charges", 0],
       ["route_to_team", "engineering", "Engineering", "Product defects, errors, outages, technical failures", 1],
       ["route_to_team", "sales", "Sales", "Pricing inquiries, upgrades, new purchases, expansions", 2],
