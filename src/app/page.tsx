@@ -118,7 +118,7 @@ export default function Home() {
   const [flowB, setFlowB] = useState<FlowState>(emptyFlowState);
   const [scoreboard, setScoreboard] = useState<ScoreboardData>(emptyScoreboard);
   const [bannerError, setBannerError] = useState<string | null>(null);
-  const completedRef = useRef<{ A?: CompletedFlow; B?: CompletedFlow }>({});
+  const completedRef = useRef<Record<string, CompletedFlow>>({});
   const [historyVersion, setHistoryVersion] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [project, setProject] = useState<Project | null>(null);
@@ -235,13 +235,13 @@ export default function Home() {
         const setFlow = event.flow === "A" ? setFlowA : setFlowB;
         setFlow((prev) => ({
           ...prev,
-          [event.step]: { status: "running", startedAt: event.at },
+          [event.role === "decide" ? "classification" : "reply"]: { status: "running", startedAt: event.at },
         }));
         break;
       }
       case "step_done": {
         const setFlow = event.flow === "A" ? setFlowA : setFlowB;
-        if (event.step === "classification") {
+        if (event.role === "decide") {
           setFlow((prev) => ({
             ...prev,
             classification: { status: "done", ms: event.ms },
@@ -278,8 +278,8 @@ export default function Home() {
         const setFlow = event.flow === "A" ? setFlowA : setFlowB;
         setFlow((prev) => ({
           ...prev,
-          [event.step]: { status: "error" },
-          error: { step: event.step, code: event.code, message: event.message },
+          [prev.reply.status === "running" ? "reply" : "classification"]: { status: "error" },
+          error: { step: prev.reply.status === "running" ? "reply" : "classification", code: event.code, message: event.message },
         }));
         break;
       }
