@@ -157,11 +157,13 @@ export function updateModel(
   return { ok: true };
 }
 
-export function deleteModel(id: string): { ok: true } | { ok: false; error: string } {
+export function deleteModel(id: string): { ok: true } | { ok: false; error: string; references?: { id: string; name: string }[] } {
   if (!getModel(id)) return { ok: false, error: "Model not found." };
-  // TODO(flow-builder phase): block deletion (409) when any flow's step
-  // references this model id — flows are not schema-defined yet, so deletion
-  // is unrestricted for now.
+  const references = getDb().prepare(`SELECT id, name FROM flows
+    WHERE EXISTS (SELECT 1 FROM json_each(flows.steps_json)
+      WHERE json_extract(json_each.value, '$.modelId') = ?)`)
+    .all(id) as { id: string; name: string }[];
+  if (references.length) return { ok: false, error: `Model is used by flows: ${references.map((flow) => flow.name).join(", ")}.`, references };
   getDb().prepare("DELETE FROM models WHERE id = ?").run(id);
   return { ok: true };
 }

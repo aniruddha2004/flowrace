@@ -34,6 +34,6 @@ export async function DELETE(
 ): Promise<NextResponse> {
   const { id } = await params;
   const result = deleteModel(id);
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 404 });
+  if (!result.ok) return NextResponse.json({ error: result.error, flows: result.references }, { status: result.references ? 409 : 404 });
   return NextResponse.json({ ok: true });
 }
