@@ -144,8 +144,10 @@ export function updateProject(
 
 export function deleteProject(id: string): { ok: true } | { ok: false; error: string } {
   if (!getProject(id)) return { ok: false, error: "Project not found." };
-  // TODO(flow-builder phase): block deletion when any flow/race references
-  // this project. Flows are still hardcoded ticket-triage for now.
+  const flowCount = (getDb().prepare("SELECT COUNT(*) AS n FROM flows WHERE project_id = ?").get(id) as { n: number }).n;
+  if (flowCount) return { ok: false, error: `Project has ${flowCount} flow(s); delete them first.` };
+  const raceCount = (getDb().prepare("SELECT COUNT(*) AS n FROM sessions WHERE project_id = ?").get(id) as { n: number }).n;
+  if (raceCount) return { ok: false, error: `Project has ${raceCount} saved race(s); delete them first.` };
   getDb().prepare("DELETE FROM projects WHERE id = ?").run(id);
   return { ok: true };
 }
