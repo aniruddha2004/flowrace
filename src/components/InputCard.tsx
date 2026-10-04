@@ -6,11 +6,12 @@ interface InputCardProps {
   onTextChange: (text: string) => void;
   onRun: () => void;
   inputLabel?: string;
+  selectedCount?: number;
 }
 
-export function InputCard({ text, running, onTextChange, onRun, inputLabel }: InputCardProps) {
+export function InputCard({ text, running, onTextChange, onRun, inputLabel, selectedCount = 2 }: InputCardProps) {
   const trimmed = text.trim();
-  const canRun = trimmed.length > 0 && !running;
+  const canRun = trimmed.length > 0 && !running && selectedCount >= 2;
 
   return (
     <section className="rounded-xl border border-line bg-panel p-5 sm:p-6">
@@ -32,12 +33,12 @@ export function InputCard({ text, running, onTextChange, onRun, inputLabel }: In
       />
       <div className="mt-4 flex flex-col items-stretch justify-between gap-3 sm:flex-row sm:items-center">
         <p className="text-xs text-ink-soft">
-          Both pipelines run concurrently on the server — results stream in live.
+          {selectedCount < 2 ? "Select at least two flows to race." : `${selectedCount} flows run concurrently — results stream in live.`}
         </p>
         <span
           title={
             !canRun
-              ? trimmed.length === 0
+              ? selectedCount < 2 ? "Select at least two flows" : trimmed.length === 0
                 ? "Paste a support ticket above first"
                 : "A race is already running"
               : undefined

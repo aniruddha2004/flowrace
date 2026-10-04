@@ -4,7 +4,8 @@ import { useState } from "react";
 import { fmtCost, fmtMs, fmtTokens } from "@/lib/format";
 import type { OutputSchema, Project } from "@/lib/projects";
 import type { FlowState, StepState } from "@/lib/race-state";
-import { PRICING } from "@/lib/pricing";
+import type { Flow } from "@/lib/flows";
+import type { ModelRow } from "@/lib/models";
 import { freeTextFields } from "@/lib/flows/buildQuestions";
 import { ACCENT, type Accent, FieldRow, FieldSkeleton, fieldConfidence, fieldValue } from "./FieldRow";
 import { SignalsPanel } from "./SignalsPanel";
@@ -17,6 +18,8 @@ interface FlowColumnProps {
   schema: OutputSchema;
   project?: Project | null;
   fieldsAgree?: Record<string, boolean> | null;
+  flow?: Flow;
+  models?: ModelRow[];
 }
 
 function StepNode({ step, label, accent }: { step: StepState; label: string; accent: Accent }) {
@@ -63,8 +66,7 @@ function StatusChip({ state }: { state: FlowState }) {
       </span>
     );
   }
-  const anyRunning =
-    state.classification.status === "running" || state.reply.status === "running";
+  const anyRunning = state.steps.some((step) => step.status === "running");
   if (anyRunning) {
     return (
       <span className="inline-flex items-center gap-1.5 rounded-md bg-track px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-wide text-ink-soft">
@@ -280,11 +282,10 @@ function ReplyBlock({ text }: { text: string }) {
   );
 }
 
-export function FlowColumn({ accent, title, subtitle, state, schema, project, fieldsAgree }: FlowColumnProps) {
+export function FlowColumn({ accent, title, subtitle, state, schema, project, fieldsAgree, flow, models = [] }: FlowColumnProps) {
   const a = ACCENT[accent];
   const started =
-    state.classification.status !== "idle" ||
-    state.reply.status !== "idle" ||
+    state.steps.some((step) => step.status !== "idle") ||
     Boolean(state.error) ||
     Boolean(state.analysis);
 
@@ -293,7 +294,7 @@ export function FlowColumn({ accent, title, subtitle, state, schema, project, fi
 
   return (
     <section className="flex flex-col overflow-hidden rounded-xl border border-line bg-panel">
-      <header className={`flex items-start justify-between gap-3 border-b border-line p-5 ${accent === "a" ? "bg-accent-a-soft/40" : "bg-accent-b-soft/40"}`}>
+      <header className={`flex items-start justify-between gap-3 border-b border-line p-5 ${a.softBg}`}>
         <div className="flex min-w-0 items-start gap-3">
           <span aria-hidden className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${a.dotBg}`} />
           <div className="min-w-0">
@@ -314,12 +315,13 @@ export function FlowColumn({ accent, title, subtitle, state, schema, project, fi
       ) : (
         <div className="animate-rise flex flex-1 flex-col gap-6 p-5">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg bg-paper px-4 py-3">
-            <StepNode step={state.classification} label="classification" accent={accent} />
-            <span aria-hidden className="hidden h-px min-w-6 flex-1 bg-line sm:block" />
-            <StepNode step={state.reply} label="reply" accent={accent} />
+            {state.steps.map((step, index) => <div key={`${step.stepId}-${index}`} className="flex items-center gap-3">
+              {index > 0 && <span aria-hidden className="h-px w-4 bg-line" />}
+              <StepNode step={step} label={`${step.modelName} — ${step.role}`} accent={accent} />
+            </div>)}
           </div>
 
-          {state.error && state.error.step === "classification" && <ErrorCard state={state} />}
+          {state.error && state.steps.find((step) => step.stepId === state.error?.step)?.role === "decide" && <ErrorCard state={state} />}
 
           <div>
             <h3 className="mb-1 font-display text-sm font-medium text-ink">Classification</h3>
@@ -336,7 +338,7 @@ export function FlowColumn({ accent, title, subtitle, state, schema, project, fi
                   />
                 ))}
               </div>
-            ) : state.classification.status === "running" ? (
+            ) : state.steps.some((step) => step.role === "decide" && step.status === "running") ? (
               <FieldSkeleton labels={fields.map((f) => f.label)} />
             ) : (
               <p className="py-2 text-xs text-muted">—</p>
@@ -355,13 +357,13 @@ export function FlowColumn({ accent, title, subtitle, state, schema, project, fi
                 </h3>
                 {generated ? (
                   <ReplyBlock text={generated} />
-                ) : state.reply.status === "running" ? (
+                ) : state.steps.some((step) => step.role === "generate" && step.status === "running") ? (
                   <div className="space-y-2 rounded-lg border border-line p-4">
                     <div className="skeleton-shimmer h-3 w-full rounded" />
                     <div className="skeleton-shimmer h-3 w-11/12 rounded" />
                     <div className="skeleton-shimmer h-3 w-4/5 rounded" />
                   </div>
-                ) : state.error && state.error.step === "reply" && ff.key === freeFields[0].key ? (
+                ) : state.error && state.steps.find((step) => step.stepId === state.error?.step)?.role === "generate" && ff.key === freeFields[0].key ? (
                   <ErrorCard state={state} />
                 ) : (
                   <p className="py-2 text-xs text-muted">—</p>
@@ -373,26 +375,9 @@ export function FlowColumn({ accent, title, subtitle, state, schema, project, fi
       )}
 
       <footer className="mt-auto border-t border-line bg-paper px-5 py-3">
-        {(state.classificationMetrics || state.replyMetrics) && (
+        {state.steps.some((step) => step.metrics) && (
           <div className="mb-2 space-y-0.5 border-b border-line pb-2 font-mono text-[11px] tabular-nums">
-            {state.classificationMetrics && (
-              <MetricLine
-                engine={accent === "b" ? "Jev" : "LLM"}
-                step="classify"
-                ms={state.classification.ms}
-                metrics={state.classificationMetrics}
-                highlight={accent}
-              />
-            )}
-            {state.replyMetrics && (
-              <MetricLine
-                engine="LLM"
-                step="reply"
-                ms={state.reply.ms}
-                metrics={state.replyMetrics}
-                highlight={accent}
-              />
-            )}
+            {state.steps.filter((step) => step.metrics).map((step) => <MetricLine key={`${step.stepId}-${step.stepIndex}`} engine={step.modelName} step={step.role} ms={step.ms} metrics={step.metrics!} highlight={accent} />)}
           </div>
         )}
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-xs tabular-nums text-ink-soft">
@@ -409,7 +394,7 @@ export function FlowColumn({ accent, title, subtitle, state, schema, project, fi
           </span>
           <span>
             cost <span className="text-ink">{state.totals ? fmtCost(state.totals.costUsd) : "—"}</span>
-            <RatesInfo accent={accent} />
+            {flow && <RatesInfo flow={flow} models={models} />}
           </span>
           <span>
             parseErrors <span className="text-ink">{state.totals ? state.totals.parseErrors : "—"}</span>
@@ -428,8 +413,8 @@ function MetricLine({
   metrics,
   highlight,
 }: {
-  engine: "Jev" | "LLM";
-  step: "classify" | "reply";
+  engine: string;
+  step: string;
   ms?: number;
   metrics: { inputTokens: number; outputTokens: number; costUsd: number };
   highlight: Accent;
@@ -438,7 +423,7 @@ function MetricLine({
     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-ink-soft">
       <span
         className={`shrink-0 rounded px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide ${
-          engine === "Jev" ? "bg-accent-b-soft text-accent-b" : `${ACCENT[highlight].softBg} ${ACCENT[highlight].text}`
+          `${ACCENT[highlight].softBg} ${ACCENT[highlight].text}`
         }`}
       >
         {engine}
@@ -455,13 +440,11 @@ function MetricLine({
   );
 }
 
-function RatesInfo({ accent }: { accent: Accent }) {
-  const k = PRICING.kimi_k3;
-  const j = PRICING.jev;
-  const lines =
-    accent === "b"
-      ? [`Jev — $${j.inputPerM}/M in · free out`, `kimi-k3 (reply only) — $${k.inputPerM}/M in · $${k.outputPerM}/M out`]
-      : [`kimi-k3 — $${k.inputPerM}/M in · $${k.outputPerM}/M out`];
+function RatesInfo({ flow, models }: { flow: Flow; models: ModelRow[] }) {
+  const lines = flow.steps.map((step) => {
+    const model = models.find((m) => m.id === step.modelId);
+    return model ? `${model.name} (${step.role}) — $${model.pricing.inputPerM}/M in · ${model.pricing.outputFree ? "free" : `$${model.pricing.outputPerM}/M`} out` : step.modelId;
+  });
   return (
     <span
       title={lines.join("\n")}

@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import type { OutputField } from "@/lib/projects";
 import type { FlowAnalysis } from "@/lib/schema";
 
-export type Accent = "a" | "b";
+export type Accent = "a" | "b" | "c" | "d" | "e";
+export const FLOW_ACCENTS: Accent[] = ["a", "b", "c", "d", "e"];
 
 export const ACCENT: Record<
   Accent,
@@ -30,6 +31,9 @@ export const ACCENT: Record<
     chipBorder: "border-accent-b/30",
     dotBg: "bg-accent-b",
   },
+  c: { text: "text-violet-600 dark:text-violet-300", softBg: "bg-violet-100 dark:bg-violet-900/40", barBg: "bg-violet-500", chipBorder: "border-violet-500/30", dotBg: "bg-violet-500" },
+  d: { text: "text-sky-600 dark:text-sky-300", softBg: "bg-sky-100 dark:bg-sky-900/40", barBg: "bg-sky-500", chipBorder: "border-sky-500/30", dotBg: "bg-sky-500" },
+  e: { text: "text-rose-600 dark:text-rose-300", softBg: "bg-rose-100 dark:bg-rose-900/40", barBg: "bg-rose-500", chipBorder: "border-rose-500/30", dotBg: "bg-rose-500" },
 };
 
 interface FieldRowProps {
