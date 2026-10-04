@@ -2,8 +2,8 @@ import type { FlowAnalysis } from "./schema";
 
 // NDJSON stream contract for POST /api/race — one JSON object per line.
 
-export type FlowId = "A" | "B";
-export type StepId = "classification" | "reply";
+export type FlowId = string;
+export type StepId = string;
 
 export interface StepMetrics {
   inputTokens: number;
@@ -20,11 +20,13 @@ export interface FlowTotals {
 }
 
 export type RaceEvent =
-  | { type: "step_start"; flow: FlowId; step: StepId; at: number }
+  | { type: "step_start"; flow: FlowId; stepId: StepId; stepIndex: number; role: "decide" | "generate"; modelName: string; at: number }
   | {
       type: "step_done";
       flow: FlowId;
-      step: "classification";
+      stepId: StepId;
+      stepIndex: number;
+      role: "decide";
       ms: number;
       data: FlowAnalysis;
       metrics: StepMetrics;
@@ -32,7 +34,9 @@ export type RaceEvent =
   | {
       type: "step_done";
       flow: FlowId;
-      step: "reply";
+      stepId: StepId;
+      stepIndex: number;
+      role: "generate";
       ms: number;
       freeText: Record<string, string>;
       metrics: StepMetrics;
@@ -46,7 +50,8 @@ export type RaceEvent =
   | {
       type: "flow_error";
       flow: FlowId;
-      step: StepId;
+      stepId: StepId;
+      stepIndex: number;
       code: string;
       message: string;
     }
