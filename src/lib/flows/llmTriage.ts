@@ -111,12 +111,13 @@ export async function decide(
   schema: OutputSchema,
   st: FlowSettings,
   adapter: LlmChatAdapter,
+  promptOverride?: string,
 ): Promise<DecideResult> {
   const fields = decisionFields(schema);
   const out = await adapter.runDecision({
     text: `${st.project.inputLabel}:\n\n${inputText}`,
     questions: buildLlmQuestions(schema),
-    context: buildDecideSystem(schema, st),
+    context: promptOverride || buildDecideSystem(schema, st),
     toolName: "submit_analysis",
     toolDescription:
       `Submit a structured ${st.project.taskDescription.toLowerCase()} analysis. You MUST call this tool exactly once with the full analysis.`,
@@ -158,10 +159,11 @@ export async function generate(
   st: FlowSettings,
   schema: OutputSchema,
   adapter: LlmChatAdapter,
+  promptOverride?: string,
 ): Promise<GenerateResult> {
   const field = freeTextFields(schema).find((f) => f.key === fieldKey);
   const extra =
-    field?.generatePrompt ??
+    promptOverride || field?.generatePrompt ||
     `Write the ${field?.label.toLowerCase() ?? fieldKey}. Output ONLY the prose for that field — no JSON, no headers, no placeholders.`;
   const out = await adapter.runGenerate({
     context: buildGenerateSystem(st, extra),
@@ -190,10 +192,11 @@ export async function generateFrom(
   st: FlowSettings,
   schema: OutputSchema,
   adapter: LlmChatAdapter,
+  promptOverride?: string,
 ): Promise<GenerateResult> {
   const field = freeTextFields(schema).find((f) => f.key === fieldKey);
   const extra =
-    field?.constrainedPrompt ??
+    promptOverride || field?.constrainedPrompt ||
     `Your ONLY job is to write the ${field?.label.toLowerCase() ?? fieldKey}. ` +
       "Do NOT re-derive the decision fields. Output ONLY prose — no JSON, no headers, no placeholders.";
   const out = await adapter.runGenerate({

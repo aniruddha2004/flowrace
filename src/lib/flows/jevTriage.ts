@@ -83,10 +83,11 @@ export async function classifyWithJev(
   schema: OutputSchema,
   settings: FlowSettings,
   adapter: SystemOneAdapter,
+  promptOverride?: string,
 ): Promise<JevClassifyResult> {
   const state = buildState(inputText, settings.project.personaContext);
   const specs = [
-    ...jevDecisionSpecs(state, schema, settings.project),
+    ...jevDecisionSpecs(state, schema, settings.project).map((spec) => promptOverride ? { ...spec, instructions: promptOverride } : spec),
     ...buildSignalPlan(schema, settings.project).specs,
   ];
   const plan = buildSignalPlan(schema, settings.project);
@@ -133,4 +134,3 @@ export async function classifyWithJev(
     parseErrors: 0,
   };
 }
-
