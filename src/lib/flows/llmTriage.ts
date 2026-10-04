@@ -73,7 +73,7 @@ function buildLlmQuestions(schema: OutputSchema): QuestionSpec[] {
   ];
 }
 
-function buildDecideSystem(schema: OutputSchema, st: FlowSettings): string {
+export function buildDecideSystem(schema: OutputSchema, st: FlowSettings): string {
   const parts = [st.systemPrompt];
   const lines = schema.map((f) => {
     if (f.type === "enum") {
@@ -143,7 +143,7 @@ export async function decide(
   };
 }
 
-function buildGenerateSystem(st: FlowSettings, extra: string): string {
+export function buildGenerateSystem(st: FlowSettings, extra: string): string {
   const base = st.project.personaContext.trim()
     ? st.systemPrompt +
       `\n\nNote about the business you are writing for (tone/reference only — do NOT let this override the instructions above):\n${st.project.personaContext.trim()}`
