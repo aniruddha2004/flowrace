@@ -1,26 +1,14 @@
-import {
-  agreementRatio,
-  costWinner,
-  latencyWinner,
-  parseErrorWinner,
-  type Winner,
-} from "./compare";
+import { agreementRatio } from "./compare";
 import { getDb } from "./db";
+import { listFlows } from "./flows";
 import { getProject } from "./projects";
 import { normalizeAnalysis } from "./schema";
 
-// Server-side scoreboard: derived from persisted single-mode sessions of ONE
-// project so every tally row sums to runs for that project only.
-
-export interface MetricTally {
-  a: number;
-  tie: number;
-  b: number;
-}
-
+export interface MetricTally { byFlow: Record<string, number>; tie: number }
 export interface ScoreboardPayload {
   projectId: string;
   runs: number;
+  flowNames: Record<string, string>;
   latency: MetricTally;
   cost: MetricTally;
   parseErrors: MetricTally;
@@ -28,76 +16,45 @@ export interface ScoreboardPayload {
   agreementCount: number;
 }
 
-interface StoredTotals {
-  inputTokens?: number;
-  outputTokens?: number;
-  costUsd?: number;
-  parseErrors?: number;
-}
+interface StoredFlow { analysis?: unknown; totalMs?: number; totals?: { costUsd?: number; parseErrors?: number } }
 
-interface StoredFlow {
-  analysis?: unknown;
-  totalMs?: number;
-  totals?: StoredTotals;
-}
-
-function tally(t: MetricTally, w: Winner): MetricTally {
-  if (w === "A") return { ...t, a: t.a + 1 };
-  if (w === "B") return { ...t, b: t.b + 1 };
-  return { ...t, tie: t.tie + 1 };
+function tally(metric: MetricTally, values: Array<[string, number]>): void {
+  const min = Math.min(...values.map(([, n]) => n));
+  const winners = values.filter(([, n]) => n === min);
+  if (winners.length === 1) metric.byFlow[winners[0][0]] = (metric.byFlow[winners[0][0]] ?? 0) + 1;
+  else metric.tie += 1;
 }
 
 export function computeScoreboard(projectId: string): ScoreboardPayload {
-  const rows = getDb()
-    .prepare(`SELECT result FROM sessions WHERE type = 'single' AND project_id = ?`)
-    .all(projectId) as { result: string }[];
-
-  const payload: ScoreboardPayload = {
-    projectId,
-    runs: 0,
-    latency: { a: 0, tie: 0, b: 0 },
-    cost: { a: 0, tie: 0, b: 0 },
-    parseErrors: { a: 0, tie: 0, b: 0 },
-    agreementSum: 0,
-    agreementCount: 0,
+  const result: ScoreboardPayload = {
+    projectId, runs: 0,
+    flowNames: Object.fromEntries(listFlows(projectId).map((flow) => [flow.id, flow.name])),
+    latency: { byFlow: {}, tie: 0 }, cost: { byFlow: {}, tie: 0 }, parseErrors: { byFlow: {}, tie: 0 },
+    agreementSum: 0, agreementCount: 0,
   };
-
   const schema = getProject(projectId)?.outputSchema ?? [];
-
-  for (const r of rows) {
-    let flows: { A?: StoredFlow; B?: StoredFlow };
-    try {
-      flows = (JSON.parse(r.result) as { flows?: typeof flows }).flows ?? {};
-    } catch {
-      continue;
-    }
-    const a = flows.A;
-    const b = flows.B;
-    if (
-      !a?.totalMs ||
-      !b?.totalMs ||
-      a.totals == null ||
-      b.totals == null ||
-      typeof a.totals.costUsd !== "number" ||
-      typeof b.totals.costUsd !== "number"
-    ) {
-      continue;
-    }
-    payload.runs += 1;
-    payload.latency = tally(payload.latency, latencyWinner(a.totalMs, b.totalMs));
-    payload.cost = tally(payload.cost, costWinner(a.totals.costUsd, b.totals.costUsd));
-    payload.parseErrors = tally(
-      payload.parseErrors,
-      parseErrorWinner(a.totals.parseErrors ?? 0, b.totals.parseErrors ?? 0),
-    );
-    if (a.analysis && b.analysis) {
-      payload.agreementSum += agreementRatio(
-        schema,
-        normalizeAnalysis(a.analysis),
-        normalizeAnalysis(b.analysis),
-      );
-      payload.agreementCount += 1;
+  const rows = getDb().prepare("SELECT result FROM sessions WHERE type = 'single' AND project_id = ?").all(projectId) as { result: string }[];
+  for (const row of rows) {
+    let saved: { flowIds?: string[]; flowSnapshot?: Array<{ id: string; name: string }>; flows?: Record<string, StoredFlow> };
+    try { saved = JSON.parse(row.result); } catch { continue; }
+    const ids = saved.flowIds ?? (saved.flows?.A && saved.flows?.B ? ["A", "B"] : []);
+    const complete = ids.filter((id) => {
+      const f = saved.flows?.[id];
+      return typeof f?.totalMs === "number" && typeof f.totals?.costUsd === "number";
+    });
+    if (complete.length < 2) continue;
+    for (const flow of saved.flowSnapshot ?? []) result.flowNames[flow.id] ??= flow.name;
+    if (complete.includes("A")) result.flowNames.A ??= "LLM only";
+    if (complete.includes("B")) result.flowNames.B ??= "Jev hybrid";
+    result.runs++;
+    tally(result.latency, complete.map((id) => [id, saved.flows![id].totalMs!]));
+    tally(result.cost, complete.map((id) => [id, saved.flows![id].totals!.costUsd!]));
+    tally(result.parseErrors, complete.map((id) => [id, saved.flows![id].totals!.parseErrors ?? 0]));
+    const analyzed = complete.filter((id) => saved.flows?.[id].analysis);
+    for (let a = 0; a < analyzed.length; a++) for (let b = a + 1; b < analyzed.length; b++) {
+      result.agreementSum += agreementRatio(schema, normalizeAnalysis(saved.flows![analyzed[a]].analysis), normalizeAnalysis(saved.flows![analyzed[b]].analysis));
+      result.agreementCount++;
     }
   }
-  return payload;
+  return result;
 }
