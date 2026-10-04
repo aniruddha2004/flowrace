@@ -1,203 +1,194 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { compareFields, fieldAgree } from "@/lib/compare";
 import type { RaceEvent, StepMetrics } from "@/lib/events";
+import type { Flow } from "@/lib/flows";
+import type { StoredStep } from "@/lib/flow-runner";
+import type { ModelRow } from "@/lib/models";
+import { compareFields } from "@/lib/compare";
 import { emptyFlowState, flowProgress, type FlowState } from "@/lib/race-state";
+import type { Project, OutputSchema } from "@/lib/projects";
 import type { FlowAnalysis } from "@/lib/schema";
-import type { Project } from "@/lib/projects";
 import type { SessionFull } from "@/lib/sessions";
-
 import { ComparisonStrip } from "@/components/ComparisonStrip";
+import { FLOW_ACCENTS, ACCENT } from "@/components/FieldRow";
 import { FlowColumn } from "@/components/FlowColumn";
+import { FlowManager } from "@/components/FlowManager";
 import { InputCard } from "@/components/InputCard";
-import { Scoreboard, emptyScoreboard, type ScoreboardData } from "@/components/Scoreboard";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { SettingsModal } from "@/components/SettingsModal";
-import { SessionSidebar } from "@/components/SessionSidebar";
 import { NewProjectModal } from "@/components/NewProjectModal";
+import { Scoreboard, emptyScoreboard, type ScoreboardData } from "@/components/Scoreboard";
+import { SessionSidebar } from "@/components/SessionSidebar";
+import { SettingsModal } from "@/components/SettingsModal";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
-interface CompletedFlow {
-  totalMs: number;
-  totals: StepMetrics;
-  analysis: FlowAnalysis;
+interface SavedFlow {
+  analysis?: FlowAnalysis;
+  freeText?: Record<string, string>;
+  steps?: StoredStep[];
+  totalMs?: number;
+  totals?: StepMetrics;
+  classificationMetrics?: StepMetrics;
+  classificationMs?: number;
+  replyMetrics?: StepMetrics;
+  replyMs?: number;
+  error?: string;
 }
 
-// Header race track — both flows' live progress made literal.
-function RaceTrack({ flowA, flowB }: { flowA: FlowState; flowB: FlowState }) {
-  const pa = flowProgress(flowA) * 100;
-  const pb = flowProgress(flowB) * 100;
-  return (
-    <div className="h-[3px] w-full bg-track">
-      <div className="relative h-full w-full">
-        <div
-          className="absolute inset-y-0 left-0 bg-accent-a transition-[width] duration-500 ease-out"
-          style={{ width: `${pa}%` }}
-        />
-        <div
-          className="absolute inset-y-0 left-0 bg-accent-b/70 transition-[width] duration-500 ease-out"
-          style={{ width: `${pb}%`, mixBlendMode: "multiply" }}
-        />
-      </div>
-    </div>
-  );
+function legacyFlow(id: string, schema: OutputSchema, projectId: string, createdAt: string): Flow {
+  const decide = id === "A" ? "kimi-k3" : "jev";
+  return {
+    id, name: id === "A" ? "LLM only" : "Jev hybrid", projectId, createdAt,
+    steps: [
+      { id: "decide", modelId: decide, role: "decide", ownsFields: schema.filter((field) => field.type !== "free_text").map((field) => field.key), seesPriorStepOutput: false },
+      { id: "generate", modelId: "kimi-k3", role: "generate", ownsFields: schema.filter((field) => field.type === "free_text").map((field) => field.key), seesPriorStepOutput: true },
+    ],
+  };
 }
 
-interface AppShellProps {
-  children: React.ReactNode;
-  onOpenSettings: () => void;
-  trackFlowA?: FlowState;
-  trackFlowB?: FlowState;
-  projects: Project[];
-  currentProjectId?: string;
-  onProjectSelect: (id: string) => void;
-  onNewProject: () => void;
+function hydrate(flow: Flow, saved?: SavedFlow): FlowState {
+  const state = emptyFlowState(flow);
+  if (!saved) return state;
+  state.analysis = saved.analysis;
+  state.freeText = saved.freeText ?? saved.analysis?.freeText;
+  state.totals = saved.totals;
+  state.totalMs = saved.totalMs;
+  state.classificationMetrics = saved.classificationMetrics;
+  state.replyMetrics = saved.replyMetrics;
+  state.steps = flow.steps.map((step, stepIndex) => {
+    const stored = saved.steps?.find((item) => item.stepIndex === stepIndex && item.stepId === step.id);
+    const legacyDone = step.role === "decide" ? Boolean(saved.analysis) : Boolean(saved.freeText && Object.keys(saved.freeText).length);
+    return {
+      stepIndex, stepId: step.id, role: step.role,
+      modelName: stored?.modelName ?? step.modelId,
+      status: stored || legacyDone ? "done" as const : "idle" as const,
+      ms: stored?.ms ?? (step.role === "decide" ? saved.classificationMs : saved.replyMs),
+      metrics: stored?.metrics ?? (step.role === "decide" ? saved.classificationMetrics : saved.replyMetrics),
+    };
+  });
+  if (saved.error) state.error = { step: "", code: "internal", message: saved.error };
+  return state;
 }
 
-function AppShell({ children, onOpenSettings, trackFlowA, trackFlowB, projects, currentProjectId, onProjectSelect, onNewProject }: AppShellProps) {
-  return (
-    <div className="flex h-dvh flex-col overflow-hidden">
-      <header className="shrink-0 border-b border-line bg-panel">
-        <div className="flex h-14 items-center justify-between px-4 sm:px-6">
-          <div className="flex min-w-0 items-baseline gap-2.5">
-            <h1 className="font-display text-base font-bold tracking-tight text-ink">Flow Race</h1>
-            <span className="hidden font-mono text-xs text-muted sm:inline">LLM vs Jev</span>
-            {projects.length > 0 && (
-              <span className="hidden min-w-0 items-baseline gap-1.5 md:inline-flex">
-                <select
-                  value={currentProjectId ?? ""}
-                  onChange={(e) => onProjectSelect(e.target.value)}
-                  aria-label="Current project"
-                  className="max-w-44 truncate rounded-md border border-line bg-paper px-2 py-1 font-mono text-xs text-ink-soft focus:border-accent-b/50 focus:outline-none"
-                >
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-                <button
-                  onClick={onNewProject}
-                  title="New project"
-                  aria-label="New project"
-                  className="flex h-6 w-6 items-center justify-center rounded-md border border-line font-mono text-xs text-ink-soft transition-colors hover:border-accent-b hover:text-accent-b"
-                >
-                  +
-                </button>
-              </span>
-            )}
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <button
-              onClick={onOpenSettings}
-              title="Settings"
-              aria-label="Settings"
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-line bg-panel text-ink-soft transition-colors hover:border-ink/20 hover:text-ink active:scale-95"
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1-.33 1.82V9c.67.6 1.51 1 1.51 1h.09a2 2 0 0 1 0 4z" />
-              </svg>
-            </button>
-            <ThemeToggle />
-          </div>
+function RaceTrack({ flows, states }: { flows: Flow[]; states: Record<string, FlowState> }) {
+  return <div className="flex h-[3px] w-full gap-px">{flows.map((flow, i) => <div key={flow.id} className="h-full flex-1 bg-track"><div className={`h-full ${ACCENT[FLOW_ACCENTS[i % FLOW_ACCENTS.length]].barBg} transition-[width] duration-500`} style={{ width: `${flowProgress(states[flow.id] ?? emptyFlowState(flow)) * 100}%` }} /></div>)}</div>;
+}
+
+function AppShell({ children, projects, projectId, onProjectSelect, onNewProject, onManageFlows, onSettings, tracked, states }: {
+  children: React.ReactNode; projects: Project[]; projectId?: string; onProjectSelect: (id: string) => void;
+  onNewProject: () => void; onManageFlows: () => void; onSettings: () => void;
+  tracked?: Flow[]; states: Record<string, FlowState>;
+}) {
+  return <div className="flex h-dvh flex-col overflow-hidden">
+    <header className="shrink-0 border-b border-line bg-panel">
+      <div className="flex h-14 items-center justify-between gap-2 px-4 sm:px-6">
+        <div className="flex min-w-0 items-center gap-2">
+          <h1 className="shrink-0 font-display text-base font-bold text-ink">Flow Race</h1>
+          {projects.length > 0 && <>
+            <select aria-label="Current project" value={projectId ?? ""} onChange={(e) => onProjectSelect(e.target.value)} className="max-w-32 min-w-0 truncate rounded-md border border-line bg-paper px-2 py-1 font-mono text-xs text-ink-soft sm:max-w-48">{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+            <button onClick={onNewProject} aria-label="New project" className="rounded border border-line px-1.5 text-sm text-ink-soft">+</button>
+            <button onClick={onManageFlows} className="whitespace-nowrap rounded border border-line px-2 py-1 font-mono text-[11px] text-accent-b">Manage flows</button>
+          </>}
         </div>
-        {trackFlowA && trackFlowB && <RaceTrack flowA={trackFlowA} flowB={trackFlowB} />}
-      </header>
-      <div className="flex flex-1 overflow-hidden">{children}</div>
-    </div>
-  );
+        <div className="flex gap-2"><button onClick={onSettings} aria-label="Settings" className="rounded-lg border border-line px-2 py-1 text-sm text-ink-soft">Settings</button><ThemeToggle /></div>
+      </div>
+      {tracked && <RaceTrack flows={tracked} states={states} />}
+    </header>
+    <div className="flex min-h-0 flex-1 overflow-hidden">{children}</div>
+  </div>;
 }
 
 export default function Home() {
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [project, setProject] = useState<Project | null>(null);
+  const [flows, setFlows] = useState<Flow[]>([]);
+  const [models, setModels] = useState<ModelRow[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [states, setStates] = useState<Record<string, FlowState>>({});
   const [viewingSession, setViewingSession] = useState<SessionFull | null>(null);
-  const [viewingSchema, setViewingSchema] = useState<import("@/lib/projects").OutputSchema | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  const [singleText, setSingleText] = useState("");
-  const [singleRunning, setSingleRunning] = useState(false);
-  const [flowA, setFlowA] = useState<FlowState>(emptyFlowState);
-  const [flowB, setFlowB] = useState<FlowState>(emptyFlowState);
+  const [viewingFlows, setViewingFlows] = useState<Flow[]>([]);
+  const [viewingSchema, setViewingSchema] = useState<OutputSchema | null>(null);
+  const [text, setText] = useState("");
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState("");
   const [scoreboard, setScoreboard] = useState<ScoreboardData>(emptyScoreboard);
-  const [bannerError, setBannerError] = useState<string | null>(null);
-  const completedRef = useRef<Record<string, CompletedFlow>>({});
   const [historyVersion, setHistoryVersion] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [project, setProject] = useState<Project | null>(null);
+  const [managerOpen, setManagerOpen] = useState(false);
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const projectIdRef = useRef<string | null>(null);
 
-  const loadProject = useCallback(async (id: string) => {
-    const res = await fetch(`/api/projects/${id}`).then((r) => r.json());
-    return res.project as Project | undefined;
+  const loadFlows = useCallback(async (projectId: string) => {
+    const data = await fetch(`/api/projects/${encodeURIComponent(projectId)}/flows`).then((res) => res.json());
+    const list = (data.flows ?? []) as Flow[];
+    setFlows(list);
+    let saved: string[] | null = null;
+    try { saved = JSON.parse(localStorage.getItem(`flow-race:selected:${projectId}`) ?? "null") as string[] | null; }
+    catch { /* Invalid local preference: use all project flows. */ }
+    const valid = Array.isArray(saved) ? saved.filter((id) => list.some((flow) => flow.id === id)) : [];
+    setSelectedIds(valid.length >= 2 ? valid : list.map((flow) => flow.id));
+    setStates(Object.fromEntries(list.map((flow) => [flow.id, emptyFlowState(flow)])));
   }, []);
 
-  const switchProject = useCallback(async (id: string) => {
-    const p = await loadProject(id);
-    if (!p) return;
-    projectIdRef.current = p.id;
-    setProject(p);
-    setViewingSession(null);
-    setViewingSchema(null);
-    setBannerError(null);
-    completedRef.current = {};
-    setFlowA(emptyFlowState());
-    setFlowB(emptyFlowState());
-    setScoreboard(emptyScoreboard());
-    setHistoryVersion((v) => v + 1);
-    setSingleText("");
-  }, [loadProject]);
-
-  const projectIdRef = useRef<string | null>(null);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [newProjectOpen, setNewProjectOpen] = useState(false);
-
-  const refreshProjects = useCallback(async (selectId?: string) => {
-    const data = await fetch("/api/projects").then((r) => r.json());
+  const loadProjects = useCallback(async (preferId?: string) => {
+    const data = await fetch("/api/projects").then((res) => res.json());
     const list = (data.projects ?? []) as Project[];
     setProjects(list);
-    const target = list.find((p) => p.id === (selectId ?? projectIdRef.current)) ?? list[0];
-    if (target) {
-      projectIdRef.current = target.id;
-      setProject(target);
-    }
-  }, []);
+    const active = list.find((item) => item.id === (preferId ?? projectIdRef.current)) ?? list[0];
+    if (active) { projectIdRef.current = active.id; setProject(active); await loadFlows(active.id); }
+  }, [loadFlows]);
 
   useEffect(() => {
-    if (projectIdRef.current) return;
-    projectIdRef.current = "pending";
-    void refreshProjects();
-  }, [refreshProjects]);
+    const timer = setTimeout(() => { void loadProjects(); }, 0);
+    void fetch("/api/models").then((res) => res.json()).then((data) => setModels(data.models ?? []));
+    return () => clearTimeout(timer);
+  }, [loadProjects]);
 
-  // Scoreboard is fully server-derived from persisted sessions — the client
-  // never tallies locally, so counts can never drift after a reload.
-  const refreshScoreboard = useCallback((projectId?: string) => {
-    const q = projectId ? `?project=${encodeURIComponent(projectId)}` : "";
-    fetch(`/api/scoreboard${q}`)
-      .then((res) => res.json())
-      .then((data: ScoreboardData) => {
-        setScoreboard(data);
-        setHistoryVersion((v) => v + 1);
-      })
-      .catch(() => {});
-  }, []);
+  const switchProject = async (id: string) => {
+    const p = projects.find((item) => item.id === id);
+    if (!p) return;
+    projectIdRef.current = id;
+    setProject(p); setViewingSession(null); setViewingSchema(null); setText(""); setError(""); setScoreboard(emptyScoreboard(id));
+    setHistoryVersion((v) => v + 1);
+    await loadFlows(id);
+  };
 
-  // The scoreboard is intentionally NOT fetched on mount — a fresh page
-  // load shows an empty board; it fills only when a race completes
-  // (run_done). History remains queryable via /api/scoreboard.
-
-  const readStream = useCallback(
-    async <T,>(
-      url: string,
-      body: Record<string, unknown>,
-      onEvent: (e: T) => void,
-      onDone?: () => void,
-    ) => {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok || !res.body) {
-        const detail = await res.text().catch(() => "");
-        throw new Error(`HTTP ${res.status}${detail ? ` — ${detail.slice(0, 200)}` : ""}`);
+  const applyEvent = (event: RaceEvent) => {
+    if (event.type === "run_done") {
+      setRunning(false);
+      void fetch(`/api/scoreboard?project=${encodeURIComponent(projectIdRef.current ?? "")}`).then((r) => r.json()).then(setScoreboard);
+      setHistoryVersion((v) => v + 1);
+      return;
+    }
+    setStates((current) => {
+      const previous = current[event.flow];
+      if (!previous) return current;
+      let updated: FlowState = { ...previous };
+      if (event.type === "step_start") {
+        updated.steps = previous.steps.map((step) => step.stepIndex === event.stepIndex ? { ...step, status: "running", modelName: event.modelName, startedAt: event.at } : step);
+      } else if (event.type === "step_done") {
+        updated.steps = previous.steps.map((step) => step.stepIndex === event.stepIndex ? { ...step, status: "done", ms: event.ms, metrics: event.metrics } : step);
+        if (event.role === "decide") { updated.analysis = event.data; updated.classification = { status: "done", ms: event.ms }; }
+        else { updated.freeText = { ...updated.freeText, ...event.freeText }; updated.reply = { status: "done", ms: event.ms }; }
+      } else if (event.type === "flow_done") {
+        updated = { ...updated, totalMs: event.totalMs, totals: event.totals };
+      } else if (event.type === "flow_error") {
+        updated.steps = previous.steps.map((step) => step.stepIndex === event.stepIndex ? { ...step, status: "error" } : step);
+        updated.error = { step: event.stepId, code: event.code, message: event.message };
       }
+      return { ...current, [event.flow]: updated };
+    });
+  };
+
+  const run = async () => {
+    if (!project || running || !text.trim() || selectedIds.length < 2) return;
+    setRunning(true); setError(""); setViewingSession(null);
+    const selected = flows.filter((flow) => selectedIds.includes(flow.id));
+    setStates(Object.fromEntries(selected.map((flow) => [flow.id, emptyFlowState(flow)])));
+    localStorage.setItem(`flow-race:selected:${project.id}`, JSON.stringify(selectedIds));
+    try {
+      const res = await fetch("/api/race", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: text.trim(), projectId: project.id, flowIds: selectedIds }) });
+      if (!res.ok || !res.body) throw new Error((await res.json()).error ?? `HTTP ${res.status}`);
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
@@ -207,336 +198,61 @@ export default function Home() {
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
         buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          try {
-            onEvent(JSON.parse(trimmed) as T);
-          } catch {
-            // ignore unparseable lines
-          }
-        }
+        for (const line of lines) if (line.trim()) applyEvent(JSON.parse(line) as RaceEvent);
       }
-      if (buffer.trim()) {
-        try {
-          onEvent(JSON.parse(buffer) as T);
-        } catch {
-          // ignore
-        }
-      }
-      onDone?.();
-    },
-    [],
-  );
+      if (buffer.trim()) applyEvent(JSON.parse(buffer) as RaceEvent);
+      setRunning(false);
+    } catch (err) { setError(err instanceof Error ? err.message : String(err)); setRunning(false); }
+  };
 
-  const applyRaceEvent = useCallback((event: RaceEvent) => {
-    switch (event.type) {
-      case "step_start": {
-        const setFlow = event.flow === "A" ? setFlowA : setFlowB;
-        setFlow((prev) => ({
-          ...prev,
-          [event.role === "decide" ? "classification" : "reply"]: { status: "running", startedAt: event.at },
-        }));
-        break;
-      }
-      case "step_done": {
-        const setFlow = event.flow === "A" ? setFlowA : setFlowB;
-        if (event.role === "decide") {
-          setFlow((prev) => ({
-            ...prev,
-            classification: { status: "done", ms: event.ms },
-            analysis: event.data,
-            classificationMetrics: event.metrics,
-          }));
-          const bucket = completedRef.current;
-          bucket[event.flow] = {
-            totalMs: bucket[event.flow]?.totalMs ?? 0,
-            totals: bucket[event.flow]?.totals ?? event.metrics,
-            analysis: event.data,
-          };
-        } else {
-          setFlow((prev) => ({
-            ...prev,
-            reply: { status: "done", ms: event.ms },
-            freeText: event.freeText,
-            replyMetrics: event.metrics,
-          }));
-        }
-        break;
-      }
-      case "flow_done": {
-        const setFlow = event.flow === "A" ? setFlowA : setFlowB;
-        setFlow((prev) => ({ ...prev, totalMs: event.totalMs, totals: event.totals }));
-        const bucket = completedRef.current[event.flow];
-        if (bucket) {
-          bucket.totalMs = event.totalMs;
-          bucket.totals = event.totals;
-        }
-        break;
-      }
-      case "flow_error": {
-        const setFlow = event.flow === "A" ? setFlowA : setFlowB;
-        setFlow((prev) => ({
-          ...prev,
-          [prev.reply.status === "running" ? "reply" : "classification"]: { status: "error" },
-          error: { step: prev.reply.status === "running" ? "reply" : "classification", code: event.code, message: event.message },
-        }));
-        break;
-      }
-      case "run_done": {
-        setSingleRunning(false);
-        void refreshScoreboard(projectIdRef.current ?? project?.id);
-        break;
-      }
-    }
-  }, [refreshScoreboard, project?.id]);
-
-  const runSingleRace = useCallback(async () => {
-    if (singleRunning || !singleText.trim()) return;
-    setSingleRunning(true);
-    setBannerError(null);
-    completedRef.current = {};
-    setFlowA(emptyFlowState());
-    setFlowB(emptyFlowState());
-    setViewingSession(null);
-
-    try {
-      await readStream<RaceEvent>(
-        "/api/race",
-        { action: "run", text: singleText.trim(), projectId: project?.id },
-        applyRaceEvent,
-      );
-    } catch (err) {
-      setBannerError(err instanceof Error ? err.message : String(err));
-      setSingleRunning(false);
-    }
-  }, [singleRunning, singleText, applyRaceEvent, readStream, project?.id]);
-
-  const loadSession = useCallback((session: SessionFull) => {
+  const loadSession = (session: SessionFull) => {
     if (session.type !== "single") return;
-    setViewingSession(session);
-    setBannerError(null);
-    setSidebarOpen(false);
-    const result = session.result as {
-      schemaVersion?: number;
-      flows?: Partial<Record<"A" | "B", {
-        analysis?: FlowAnalysis;
-        freeText?: Record<string, string>;
-        totalMs?: number;
-        totals?: StepMetrics;
-        classificationMetrics?: StepMetrics;
-        classificationMs?: number;
-        replyMetrics?: StepMetrics;
-        replyMs?: number;
-        error?: string;
-      }>>;
-    };
-    const a = result.flows?.A ?? {};
-    const b = result.flows?.B ?? {};
-    const hydrate = (f: typeof a): FlowState => ({
-      classification: f.analysis
-        ? { status: "done", ms: f.classificationMs ?? f.totalMs }
-        : { status: "idle" },
-      reply: Object.keys(f.freeText ?? {}).length > 0 || f.replyMs
-        ? { status: "done", ms: f.replyMs ?? f.totalMs }
-        : { status: "idle" },
-      analysis: f.analysis,
-      classificationMetrics: f.classificationMetrics,
-      freeText: f.freeText ?? f.analysis?.freeText ?? {},
-      replyMetrics: f.replyMetrics,
-      totalMs: f.totalMs,
-      totals: f.totals,
-      error: f.error ? { step: "reply", code: "internal", message: f.error } : undefined,
-    });
-    setFlowA(hydrate(a));
-    setFlowB(hydrate(b));
-    setViewingSchema(Array.isArray(session.schemaSnapshot) ? session.schemaSnapshot : null);
-    if (session.projectId) void loadProject(session.projectId);
-  }, [loadProject]);
+    const schema = session.schemaSnapshot ?? project?.outputSchema ?? [];
+    const result = session.result as { flowIds?: string[]; flowSnapshot?: Flow[]; flows?: Record<string, SavedFlow> };
+    const ids = result.flowIds ?? Object.keys(result.flows ?? {});
+    const shown = ids.map((id) => result.flowSnapshot?.find((flow) => flow.id === id)
+      ?? flows.find((flow) => flow.id === id)
+      ?? legacyFlow(id, schema, session.projectId ?? project?.id ?? "", session.createdAt));
+    setViewingSession(session); setViewingSchema(schema); setViewingFlows(shown);
+    setStates(Object.fromEntries(shown.map((flow) => [flow.id, hydrate(flow, result.flows?.[flow.id])])));
+    setSidebarOpen(false); setError("");
+  };
 
-  const activeSchema = viewingSchema ?? project?.outputSchema ?? [];
-  const cmpFields = compareFields(activeSchema);
-  const agreeMap: Record<string, boolean> | null =
-    flowA.analysis && flowB.analysis
-      ? Object.fromEntries(
-          cmpFields.map((f) => [f.key, fieldAgree(f, flowA.analysis!, flowB.analysis!)]),
-        )
-      : null;
+  const reset = (clearText = false) => {
+    setViewingSession(null); setViewingSchema(null); setViewingFlows([]); setStates(Object.fromEntries(flows.map((flow) => [flow.id, emptyFlowState(flow)])));
+    setScoreboard(emptyScoreboard(project?.id)); setError(""); if (clearText) setText(""); setSidebarOpen(false);
+  };
 
-  const resetLiveView = useCallback((clearText: boolean) => {
-    setViewingSession(null);
-    setViewingSchema(null);
-    setBannerError(null);
-    completedRef.current = {};
-    setFlowA(emptyFlowState());
-    setFlowB(emptyFlowState());
-    setScoreboard(emptyScoreboard());
-    if (clearText) setSingleText("");
-    setSidebarOpen(false);
-  }, []);
+  const shown = viewingSession ? viewingFlows : flows.filter((flow) => selectedIds.includes(flow.id));
+  const schema = viewingSchema ?? project?.outputSchema ?? [];
+  const rows = shown.map((flow) => ({ flow, state: states[flow.id] ?? emptyFlowState(flow) }));
+  const sidebar = <SessionSidebar activeId={viewingSession?.id ?? null} onSelect={loadSession} onNew={() => reset(true)} refreshKey={historyVersion} projectId={project?.id} />;
 
-  const sidebar = (
-    <SessionSidebar
-      activeId={viewingSession?.id ?? null}
-      onSelect={loadSession}
-      onNew={() => resetLiveView(true)}
-      refreshKey={historyVersion}
-      projectId={project?.id}
-    />
-  );
-
-  if (viewingSession) {
-    return (
-      <AppShell
-        onOpenSettings={() => setSettingsOpen(true)}
-        projects={projects}
-        currentProjectId={project?.id}
-        onProjectSelect={(id) => void switchProject(id)}
-        onNewProject={() => setNewProjectOpen(true)}
-      >
-        <div className="hidden min-h-0 sm:flex sm:items-stretch">{sidebar}</div>
-        <div className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-[1400px] px-6 pb-16 pt-8 sm:px-10 lg:px-16">
-            <button
-              onClick={() => resetLiveView(false)}
-              className="mb-6 inline-flex items-center gap-1.5 font-mono text-xs text-accent-b hover:opacity-80"
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M15 18l-6-6 6-6" />
-              </svg>
-              Back to live race
-            </button>
-            <div className="animate-rise mb-4 flex items-center justify-between">
-              <div>
-                <h2 className="font-display text-xl font-semibold break-words text-ink">{viewingSession.label}</h2>
-                <p className="mt-1 font-mono text-xs text-muted">
-                  {viewingSession.type} · {new Date(viewingSession.createdAt).toLocaleString()}
-                </p>
-              </div>
-            </div>
-
-            <div className="mb-6 rounded-xl border border-line bg-panel p-5">
-              <p className="mb-2 font-mono text-[10px] uppercase tracking-wide text-muted">Ticket</p>
-              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-ink">
-                {typeof viewingSession.input === "string"
-                  ? viewingSession.input
-                  : (viewingSession.input as { text?: string })?.text ?? ""}
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-              <FlowColumn
-                accent="a"
-                title="Flow A — LLM tool-call"
-                subtitle="kimi-k3 classifies via forced submit_analysis tool-call (zod-validated, retried), then drafts the reply."
-                state={flowA}
-                schema={viewingSchema ?? activeSchema}
-                project={project}
-                fieldsAgree={agreeMap}
-              />
-              <FlowColumn
-                accent="b"
-                title="Flow B — Jev + LLM hybrid"
-                subtitle="Jev (TypeSafe System One) classifies with rubric questions; the LLM only drafts the reply from those decisions."
-                state={flowB}
-                schema={viewingSchema ?? activeSchema}
-                project={project}
-                fieldsAgree={agreeMap}
-              />
-            </div>
-            <div className="mt-6">
-              <ComparisonStrip
-                flowA={flowA}
-                flowB={flowB}
-                fields={compareFields(viewingSchema ?? activeSchema)}
-              />
-            </div>
-          </div>
-        </div>
-
-        <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} project={project} onProjectChange={() => void refreshProjects()} />
-      </AppShell>
-    );
-  }
-
-  return (
-    <AppShell
-      onOpenSettings={() => setSettingsOpen(true)}
-      trackFlowA={flowA}
-      trackFlowB={flowB}
-      projects={projects}
-      currentProjectId={project?.id}
-      onProjectSelect={(id) => void switchProject(id)}
-      onNewProject={() => setNewProjectOpen(true)}
-    >
-      <div className="hidden min-h-0 sm:flex sm:items-stretch">{sidebar}</div>
-
-      {/* Mobile sidebar drawer */}
-      {sidebarOpen && (
-        <div className="fixed inset-0 z-40 sm:hidden">
-          <div className="absolute inset-0 bg-ink/40" onClick={() => setSidebarOpen(false)} />
-          <div className="animate-modal absolute inset-y-0 left-0">{sidebar}</div>
-        </div>
-      )}
-
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-[1400px] px-6 pb-16 pt-8 sm:px-10 lg:px-16">
-          <div className="mb-6 flex items-center justify-between gap-3">
-            <button
-              onClick={() => setSidebarOpen(true)}
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-line bg-panel text-ink-soft sm:hidden"
-              aria-label="Open history"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <path d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-            </button>
-          </div>
-
-          {bannerError && (
-            <div className="animate-rise mb-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300">
-              {bannerError}
-            </div>
-          )}
-
-          <div className="space-y-6">
-            <InputCard text={singleText} running={singleRunning} onTextChange={setSingleText} onRun={runSingleRace} inputLabel={project?.inputLabel} />
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-              <FlowColumn
-                accent="a"
-                title="Flow A — LLM tool-call"
-                subtitle="kimi-k3 classifies via forced submit_analysis tool-call (zod-validated, retried), then drafts the reply."
-                state={flowA}
-                schema={activeSchema}
-                project={project}
-                fieldsAgree={agreeMap}
-              />
-              <FlowColumn
-                accent="b"
-                title="Flow B — Jev + LLM hybrid"
-                subtitle="Jev (TypeSafe System One) classifies with rubric questions; the LLM only drafts the reply from those decisions."
-                state={flowB}
-                schema={activeSchema}
-                project={project}
-                fieldsAgree={agreeMap}
-              />
-            </div>
-            <ComparisonStrip flowA={flowA} flowB={flowB} fields={cmpFields} />
-            <Scoreboard data={scoreboard} />
-          </div>
-
-          <footer className="mt-12 border-t border-line pt-6 text-center font-mono text-xs text-muted">
-            Flow A: forced tool-calling · Flow B: Jev System One + reply-only · all metrics are real API usage
-          </footer>
-        </div>
-      </div>
-
-      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} project={project} onProjectChange={() => void refreshProjects()} />
-      <NewProjectModal
-        open={newProjectOpen}
-        onClose={() => setNewProjectOpen(false)}
-        onCreated={(id) => void refreshProjects(id)}
-      />
-    </AppShell>
-  );
+  return <AppShell projects={projects} projectId={project?.id} onProjectSelect={(id) => void switchProject(id)} onNewProject={() => setNewProjectOpen(true)} onManageFlows={() => setManagerOpen(true)} onSettings={() => setSettingsOpen(true)} tracked={viewingSession ? undefined : shown} states={states}>
+    <div className="hidden min-h-0 sm:flex sm:items-stretch">{sidebar}</div>
+    {sidebarOpen && <div className="fixed inset-0 z-40 sm:hidden"><div className="absolute inset-0 bg-ink/40" onClick={() => setSidebarOpen(false)} /><div className="animate-modal absolute inset-y-0 left-0">{sidebar}</div></div>}
+    <main className="min-w-0 flex-1 overflow-y-auto"><div className="mx-auto max-w-[1600px] space-y-6 px-6 pb-16 pt-8 sm:px-10 lg:px-12">
+      {viewingSession ? <>
+        <button className="font-mono text-xs text-accent-b" onClick={() => reset()}>← Back to live race</button>
+        <div><h2 className="font-display text-xl font-semibold text-ink">{viewingSession.label}</h2><p className="font-mono text-xs text-muted">{new Date(viewingSession.createdAt).toLocaleString()}</p></div>
+        <div className="rounded-xl border border-line bg-panel p-5 text-sm text-ink"><p className="mb-2 font-mono text-[10px] uppercase text-muted">Input</p>{(viewingSession.input as { text?: string })?.text ?? ""}</div>
+      </> : <>
+        <button className="rounded-md border border-line px-3 py-1 text-xs text-ink sm:hidden" onClick={() => setSidebarOpen(true)}>History</button>
+        <section className="rounded-xl border border-line bg-panel p-4"><div className="mb-3 flex items-center justify-between gap-2"><h2 className="font-display text-sm font-semibold text-ink">Select flows to race</h2><span className="font-mono text-xs text-muted">{selectedIds.length} selected · minimum 2</span></div>
+          {flows.length === 0 ? <p className="text-sm text-muted">No flows yet. Open Manage flows to create one.</p> : <div className="flex flex-wrap gap-2">{flows.map((flow) => <label key={flow.id} className="flex cursor-pointer items-center gap-2 rounded-lg border border-line bg-paper px-3 py-2 text-xs text-ink"><input type="checkbox" checked={selectedIds.includes(flow.id)} disabled={running} onChange={(e) => setSelectedIds((prev) => e.target.checked ? [...prev, flow.id] : prev.filter((id) => id !== flow.id))} />{flow.name}</label>)}</div>}
+        </section>
+        <InputCard text={text} running={running} onTextChange={setText} onRun={() => void run()} inputLabel={project?.inputLabel} selectedCount={selectedIds.length} />
+      </>}
+      {error && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</p>}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">{rows.map(({ flow, state }, i) => <FlowColumn key={flow.id} accent={FLOW_ACCENTS[i % FLOW_ACCENTS.length]} title={flow.name} subtitle={flow.steps.map((step) => `${step.modelId} — ${step.role}`).join(" → ")} state={state} schema={schema} project={project} flow={flow} models={models} />)}</div>
+      <ComparisonStrip flows={rows} fields={compareFields(schema)} />
+      {!viewingSession && <Scoreboard data={scoreboard} />}
+    </div></main>
+    <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} project={project} onProjectChange={() => void loadProjects()} />
+    <FlowManager open={managerOpen} project={project} onClose={() => setManagerOpen(false)} onChange={() => { if (project) void loadFlows(project.id); }} />
+    <NewProjectModal open={newProjectOpen} onClose={() => setNewProjectOpen(false)} onCreated={(id) => {
+      setViewingSession(null); setViewingSchema(null); setText(""); setError(""); setScoreboard(emptyScoreboard(id));
+      setHistoryVersion((v) => v + 1); void loadProjects(id);
+    }} />
+  </AppShell>;
 }
