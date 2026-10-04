@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { seedPlatform } from "./projects";
+import { seedFlows } from "./flows";
 
 // ---------------------------------------------------------------------------
 // SQLite via better-sqlite3. Singleton per process. The caller (API route)
@@ -59,6 +60,14 @@ function migrate(d: Database.Database): void {
       persona_context TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+    CREATE TABLE IF NOT EXISTS flows (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      name TEXT NOT NULL,
+      steps_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_flows_project ON flows(project_id, created_at);
     -- Legacy table kept as the migration SOURCE for seedPlatform(); dropped
     -- once the project row has been written.
     CREATE TABLE IF NOT EXISTS taxonomy_options (
@@ -79,6 +88,7 @@ function migrate(d: Database.Database): void {
 
   seedLegacy(d);
   seedPlatform();
+  seedFlows(d);
   d.exec("DROP TABLE IF EXISTS taxonomy_options");
   d.exec("UPDATE sessions SET project_id = 'support-ticket-triage' WHERE project_id IS NULL");
 }
