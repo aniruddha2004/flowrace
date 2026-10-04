@@ -4,7 +4,7 @@ import type { OutputSchema } from "./projects";
 import { normalizeAnalysis, SCHEMA_VERSION } from "./schema";
 
 // ---------------------------------------------------------------------------
-// Session persistence. result JSON carries flows keyed A/B with FlowAnalysis
+// Session persistence. result JSON carries flows keyed by flow ids with FlowAnalysis
 // payloads (schemaVersion-stamped). taxonomy_snapshot now stores the output
 // schema in effect at run time so old sessions render after schema edits.
 // ---------------------------------------------------------------------------
@@ -109,12 +109,10 @@ interface StoredFlowShape {
  * reply text as a top-level `reply` string; normalize both on the way out. */
 function normalizeResult(result: unknown): unknown {
   if (typeof result !== "object" || result === null) return result;
-  const r = result as { flows?: Partial<Record<"A" | "B", StoredFlowShape>> };
+  const r = result as { flows?: Record<string, StoredFlowShape> };
   if (!r.flows) return result;
-  const out: Partial<Record<"A" | "B", StoredFlowShape>> = {};
-  for (const flow of ["A", "B"] as const) {
-    const f = r.flows[flow];
-    if (!f) continue;
+  const out: Record<string, StoredFlowShape> = {};
+  for (const [flow, f] of Object.entries(r.flows)) {
     out[flow] = {
       ...f,
       analysis: normalizeAnalysis(f.analysis),
