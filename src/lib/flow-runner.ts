@@ -62,7 +62,7 @@ export async function runFlowDefinition(flow: Flow, text: string, settings: Flow
 
   for (const [stepIndex, step] of flow.steps.entries()) {
     const registered = getModel(step.modelId)!;
-    const modelName = registered.apiConfig.modelId ?? registered.name;
+    const modelName = registered.name;
     emit({ type: "step_start", flow: flow.id, stepIndex, stepId: step.id, role: step.role, modelName, at: Date.now() });
     const stepStart = performance.now();
     try {
@@ -98,14 +98,15 @@ export async function runFlowDefinition(flow: Flow, text: string, settings: Flow
           if (!(model instanceof LlmChatAdapter)) throw new Error(`Model "${step.modelId}" cannot generate free text.`);
           if (step.seesPriorStepOutput && flow.steps[stepIndex - 1]?.role === "decide") {
             const previous = flow.steps[stepIndex - 1];
+            const previousAnalysis = priorOutput as FlowAnalysis;
             const output = previous.modelId === step.modelId
-              ? await generate(text, key, analysis, settings, schema, model, step.promptOverride)
-              : await generateFrom(text, key, analysis, settings, schema, model, step.promptOverride);
+              ? await generate(text, key, previousAnalysis, settings, schema, model, step.promptOverride)
+              : await generateFrom(text, key, previousAnalysis, settings, schema, model, step.promptOverride);
             freeText[key] = output.text;
             add(metrics, output);
           } else {
             const output = await model.runGenerate({
-              text: `${settings.project.inputLabel}:\n${text}`,
+              text: `${settings.project.inputLabel}:\n${input}`,
               context: step.promptOverride || field.generatePrompt || `Write ${field.label}. Output only the text.`,
               priorStepOutput: step.seesPriorStepOutput ? priorOutput : undefined,
             });
