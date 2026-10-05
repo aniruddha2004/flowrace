@@ -64,14 +64,14 @@ export function SessionSidebar({ projectId, activeId, onSelect, onNew, refreshKe
   };
 
   return (
-    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-line bg-panel">
+    <aside className="ui-surface flex max-h-[min(76vh,850px)] min-h-[300px] min-w-0 flex-col overflow-hidden">
       <div className="flex h-14 items-center justify-between border-b border-line px-4">
-        <h3 className="font-display text-sm font-semibold text-ink">History</h3>
+        <h3 className="font-display text-sm font-semibold text-ink">Saved runs <span className="ml-1 font-mono text-xs font-normal text-muted">{sessions.length}</span></h3>
         <button
           onClick={onNew}
           title="New race"
           aria-label="New race"
-          className="flex h-7 w-7 items-center justify-center rounded-md text-accent-a transition-colors hover:bg-accent-a-soft active:scale-95"
+          className="flex h-7 w-7 items-center justify-center rounded-md text-brand transition-colors hover:bg-brand-soft active:scale-95"
         >
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
             <path d="M12 5v14M5 12h14" />
@@ -81,12 +81,12 @@ export function SessionSidebar({ projectId, activeId, onSelect, onNew, refreshKe
 
       {sessions.length > 0 && (
         <div className="flex items-center justify-between border-b border-line px-3.5 py-1.5">
-          <label className="flex cursor-pointer items-center gap-2 font-mono text-[10px] uppercase tracking-wide text-muted hover:text-ink">
+          <label className="flex cursor-pointer items-center gap-2 text-xs text-muted hover:text-ink">
             <input
               type="checkbox"
               checked={allChecked}
               onChange={toggleAll}
-              className="h-3 w-3 accent-amber-700 dark:accent-amber-600"
+              className="h-3 w-3 accent-[#345beb]"
             />
             Select all
           </label>
@@ -95,7 +95,7 @@ export function SessionSidebar({ projectId, activeId, onSelect, onNew, refreshKe
               <button
                 onClick={() => void deleteIds([...checked])}
                 disabled={deleting}
-                className="font-mono text-[10px] font-semibold uppercase tracking-wide text-rose-600 transition-colors hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-rose-400"
+                className="text-xs font-semibold text-bad transition-colors hover:underline disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {deleting ? "Deleting…" : `Delete ${checked.size}`}
               </button>
@@ -121,11 +121,11 @@ export function SessionSidebar({ projectId, activeId, onSelect, onNew, refreshKe
                   <button
                     onClick={() => void load(s.id)}
                     className={`relative w-full pl-8 pr-9 py-3 text-left transition-colors ${
-                      active ? "bg-accent-a-soft" : "hover:bg-track"
+                      active ? "bg-brand-soft" : "hover:bg-track"
                     }`}
                   >
                     {active && (
-                      <span className="absolute inset-y-0 left-0 w-0.5 bg-accent-a" aria-hidden />
+                        <span className="absolute inset-y-0 left-0 w-0.5 bg-brand" aria-hidden />
                     )}
                     <div className="flex items-start gap-2">
                       <div className="min-w-0 flex-1">
@@ -148,7 +148,7 @@ export function SessionSidebar({ projectId, activeId, onSelect, onNew, refreshKe
                       checked={checked.has(s.id)}
                       onChange={() => toggleCheck(s.id)}
                       aria-label={`Select session ${s.label}`}
-                      className="h-3 w-3 cursor-pointer accent-amber-700 opacity-50 transition-opacity hover:opacity-100 group-hover:opacity-100 dark:accent-amber-600"
+                      className="h-3 w-3 cursor-pointer accent-[#345beb] opacity-50 transition-opacity hover:opacity-100 group-hover:opacity-100"
                     />
                   </div>
                   <button
