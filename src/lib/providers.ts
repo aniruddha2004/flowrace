@@ -32,7 +32,8 @@ function setSecret(id: string, key: string | null): void {
 }
 
 export function providerKey(provider: Pick<ProviderRow, "id" | "apiKeyEnvVar">): string | undefined {
-  return secrets()[provider.id] ?? (provider.apiKeyEnvVar ? process.env[provider.apiKeyEnvVar] : undefined);
+  const saved = secrets();
+  return (Object.hasOwn(saved, provider.id) ? saved[provider.id] : undefined) ?? (provider.apiKeyEnvVar ? process.env[provider.apiKeyEnvVar] : undefined);
 }
 
 type Stored = Omit<ProviderRow, "hasCredential">;

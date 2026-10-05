@@ -26,6 +26,7 @@ const mapping = {
 };
 
 (async () => {
+  assert.equal(providerKey({ id: "constructor", apiKeyEnvVar: "" }), undefined);
   assert.throws(() => parseMapping(JSON.stringify({ path: "//outside", decision: mapping.decision })), /absolute path/);
   assert.throws(() => parseMapping(JSON.stringify({ ...mapping, generate: { body: { leak: "{{secret}}" }, textPath: "output.text" } })), /Unknown template variable/);
   const seen = [];
