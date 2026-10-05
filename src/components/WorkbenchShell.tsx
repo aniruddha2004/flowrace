@@ -26,6 +26,7 @@ export function WorkbenchShell({ children, projects, project, view, onProject, o
     return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", escape); };
   }, [switcherOpen]);
   const currentTab = view === "builder" ? "flows" : view;
+  const isHome = view === "home";
   const matches = projects.filter((item) => `${item.name} ${item.id}`.toLowerCase().includes(query.toLowerCase()));
 
   return <div className="min-h-dvh bg-paper">
@@ -40,12 +41,12 @@ export function WorkbenchShell({ children, projects, project, view, onProject, o
         <span className="hidden h-5 w-px bg-line sm:block" aria-hidden="true" />
         <div className="relative min-w-0" ref={switcherRef}>
           <button aria-label="Switch project" aria-expanded={switcherOpen} onClick={() => { setSwitcherOpen((value) => !value); setQuery(""); }} className="flex max-w-[240px] items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm font-medium text-ink transition-colors hover:bg-track">
-            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[4px] bg-brand-soft font-display text-[11px] font-bold text-brand">{project?.name?.charAt(0).toUpperCase() ?? "⌂"}</span>
-            <span className="truncate">{project?.name ?? "All projects"}</span><span className="text-muted" aria-hidden="true">⌄</span>
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[4px] bg-brand-soft font-display text-[11px] font-bold text-brand">{isHome ? "⌂" : project?.name?.charAt(0).toUpperCase() ?? "⌂"}</span>
+            <span className="truncate">{isHome ? "All projects" : project?.name ?? "All projects"}</span><span className="text-muted" aria-hidden="true">⌄</span>
           </button>
           {switcherOpen && <div className="absolute left-0 top-full z-50 mt-2 w-[min(340px,calc(100vw-2rem))] rounded-[10px] border border-line bg-panel p-2 shadow-elevated">
             <input autoFocus className="ui-input mb-1" aria-label="Find project" placeholder="Find a project…" value={query} onChange={(event) => setQuery(event.target.value)} />
-            <div className="max-h-56 overflow-y-auto py-1">{matches.map((item) => <button key={item.id} className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm hover:bg-track ${project?.id === item.id ? "bg-brand-soft font-semibold text-brand" : "text-ink"}`} onClick={() => { onProject(item.id); setSwitcherOpen(false); }}><span className="flex h-7 w-7 items-center justify-center rounded bg-track font-display text-xs font-semibold text-ink-soft">{item.name.charAt(0).toUpperCase()}</span><span className="truncate">{item.name}</span></button>)}
+            <div className="max-h-56 overflow-y-auto py-1">{matches.map((item) => <button key={item.id} className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm hover:bg-track ${!isHome && project?.id === item.id ? "bg-brand-soft font-semibold text-brand" : "text-ink"}`} onClick={() => { onProject(item.id); setSwitcherOpen(false); }}><span className="flex h-7 w-7 items-center justify-center rounded bg-track font-display text-xs font-semibold text-ink-soft">{item.name.charAt(0).toUpperCase()}</span><span className="truncate">{item.name}</span></button>)}
               {matches.length === 0 && <p className="px-3 py-3 text-sm text-muted">No matching projects</p>}</div>
             <button className="flex w-full items-center gap-2 border-t border-line px-3 py-3 text-left text-sm font-semibold text-brand hover:bg-brand-soft" onClick={() => { setSwitcherOpen(false); onNewProject(); }}>+ New project</button>
           </div>}
