@@ -59,7 +59,8 @@ function hydrate(flow: Flow, saved?: SavedFlow): FlowState {
 function ResultGrid({ rows, schema, project, models }: {
   rows: Array<{ flow: Flow; state: FlowState }>; schema: OutputSchema; project: Project; models: ModelRow[];
 }) {
-  return <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">{rows.map(({ flow, state }, index) => <FlowColumn key={flow.id} accent={FLOW_ACCENTS[index % FLOW_ACCENTS.length]} title={flow.name} subtitle={flow.steps.map((step) => `${step.modelId} · ${step.role}`).join(" → ")} state={state} schema={schema} project={project} flow={flow} models={models} />)}</div>;
+  const columns = rows.length === 3 ? "xl:grid-cols-3" : rows.length >= 4 ? "2xl:grid-cols-4" : "";
+  return <div className={`grid gap-4 md:grid-cols-2 ${columns}`}>{rows.map(({ flow, state }, index) => <FlowColumn key={flow.id} accent={FLOW_ACCENTS[index % FLOW_ACCENTS.length]} title={flow.name} subtitle={flow.steps.map((step) => `${step.modelId} · ${step.role}`).join(" → ")} state={state} schema={schema} project={project} flow={flow} models={models} />)}</div>;
 }
 
 export default function Home() {
