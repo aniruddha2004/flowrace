@@ -61,7 +61,7 @@ export class CustomHttpAdapter implements ModelAdapter {
       headers[auth.mode === "header" ? auth.header! : "Authorization"] = auth.mode === "bearer" ? `Bearer ${this.apiKey}` : this.apiKey;
     }
     const response = await postJsonWithRetry(url, headers, applyTemplate(body, variables), 120_000);
-    if (response.status < 200 || response.status >= 300) throw new MappingError(`Provider ${this.provider.name} returned HTTP ${response.status}: ${response.body.slice(0, 200)}`);
+    if (response.status < 200 || response.status >= 300) throw new MappingError(`Provider ${this.provider.name} returned HTTP ${response.status}.`);
     try { return { json: JSON.parse(response.body) as unknown, ms: Math.round(performance.now() - start) }; }
     catch { throw new MappingError(`Provider ${this.provider.name} returned invalid JSON.`); }
   }

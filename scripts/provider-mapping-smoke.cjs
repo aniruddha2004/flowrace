@@ -14,6 +14,8 @@ const { createProvider, providerKey, discoverModels, deleteProvider } = require(
 const { runFlowDefinition } = require("../src/lib/flow-runner.ts");
 const { parseMapping } = require("../src/lib/http-mapping.ts");
 const { GLINER_MAPPING } = require("../src/lib/http-mapping.ts");
+const { mappingForProtocol } = require("../src/lib/http-mapping.ts");
+const { CustomHttpAdapter } = require("../src/lib/adapters/custom-http.ts");
 
 const mapping = {
   path: "/invoke", auth: { mode: "bearer" },
@@ -34,8 +36,16 @@ const mapping = {
     const chunks = [];
     for await (const chunk of request) chunks.push(chunk);
     const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-    seen.push({ path: request.url, auth: request.headers.authorization, body });
+    seen.push({ path: request.url, auth: request.headers.authorization, headers: request.headers, body });
     response.setHeader("content-type", "application/json");
+    if (request.url === "/messages" || request.url?.startsWith("/models/gemini-fixture:generateContent")) {
+      const prompt = request.url === "/messages" ? body.messages[0].content : body.contents[0].parts[0].text;
+      const content = prompt.includes("Return only valid JSON") ? JSON.stringify({ answers: { fit: { value: "strong", confidence: 0.8 } } }) : "Generated response.";
+      response.end(JSON.stringify(request.url === "/messages"
+        ? { content: [{ text: content }], usage: { input_tokens: 9, output_tokens: 3 } }
+        : { candidates: [{ content: { parts: [{ text: content }] } }], usageMetadata: { promptTokenCount: 9, candidatesTokenCount: 3 } }));
+      return;
+    }
     response.end(JSON.stringify(body.kind === "decide" ? {
       answers: { fit: { choice: "strong", confidence: 0.9 }, reasoning: { text: "Matches the criteria", confidence: 0 } },
       usage: { in: 13, out: 6 },
@@ -74,6 +84,20 @@ const mapping = {
     assert.equal(seen[0].body.questions.fit.type, "choice");
     assert.equal(seen[0].body.questions.fit.criteria.strong, "Matches");
     console.log("Provider discovery, server-only credential, JSON mapping and two-step custom HTTP flow passed.");
+    for (const [protocol, modelName, expectedPath, headerName] of [
+      ["anthropic_messages", "claude-fixture", "/messages", "x-api-key"],
+      ["gemini_generate", "gemini-fixture", "/models/gemini-fixture:generateContent", "x-goog-api-key"],
+    ]) {
+      const adapter = new CustomHttpAdapter({ ...input, apiConfig: { ...input.apiConfig, modelId: modelName, requestTemplate: JSON.stringify(mappingForProtocol(protocol)) } },
+        { id: protocol, name: protocol, protocol, apiBase: `http://127.0.0.1:${server.address().port}`, apiKeyEnvVar: "", hasCredential: true, createdAt: "" }, "fixture-key");
+      const decision = await adapter.runDecision({ text: "Applicant profile", context: "Evaluate fit.", questions: [{ key: "fit", type: "enum", instructions: "Select fit", options: [{ key: "strong", label: "Strong", description: "Matches" }] }] });
+      assert.equal(decision.answers.fit.value, "strong");
+      assert.equal(decision.inputTokens, 9);
+      const generated = await adapter.runGenerate({ text: "Write a summary", context: "Be concise." });
+      assert.equal(generated.text, "Generated response.");
+      assert.ok(seen.slice(-2).every((entry) => entry.path === expectedPath && entry.headers[headerName] === "fixture-key"));
+    }
+    console.log("Anthropic and Gemini preset mappings completed decision and generation requests.");
     if (process.env.FLOWRACE_TEST_GLINER === "1") {
       const { getDefaultProject } = require("../src/lib/projects.ts");
       const { decide } = require("../src/lib/flows/llmTriage.ts");
