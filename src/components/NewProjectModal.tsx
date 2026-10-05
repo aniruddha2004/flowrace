@@ -58,7 +58,7 @@ export function NewProjectModal({ open, onClose, onCreated }: Props) {
         </div>
         <div className="space-y-3 px-5 py-4">
           <p className="text-xs leading-relaxed text-ink-soft">
-            Creates a project with an empty output schema — open Settings → Output schema to add fields.
+            Start with an empty project, then define its output fields in the project Overview.
           </p>
           <input
             value={id}
