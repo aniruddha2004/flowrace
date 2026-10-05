@@ -1,5 +1,7 @@
 import { getDb } from "./db";
 import { usd, type TokenRates } from "./pricing";
+import { parseMapping } from "./http-mapping";
+import { getProvider } from "./providers";
 
 // ---------------------------------------------------------------------------
 // Model Registry — every LLM / System One endpoint the platform can call is a
@@ -14,7 +16,7 @@ export interface ModelApiConfig {
   apiBase: string;
   apiKeyEnvVar: string;
   modelId?: string;
-  /** custom_http only — reserved for a future adapter; not implemented yet. */
+  /** Declarative request and response mapping for custom_http. */
   requestTemplate?: string;
 }
 
@@ -28,6 +30,7 @@ export interface ModelRow {
   id: string;
   name: string;
   adapterType: AdapterType;
+  providerId?: string | null;
   apiConfig: ModelApiConfig;
   pricing: ModelPricing;
   createdAt: string;
@@ -48,11 +51,13 @@ function toRow(r: {
   api_config_json: string;
   pricing_json: string;
   created_at: string;
+  provider_id: string | null;
 }): ModelRow {
   return {
     id: r.id,
     name: r.name,
     adapterType: r.adapter_type,
+    providerId: r.provider_id,
     apiConfig: JSON.parse(r.api_config_json) as ModelApiConfig,
     pricing: JSON.parse(r.pricing_json) as ModelPricing,
     createdAt: r.created_at,
@@ -81,6 +86,7 @@ export function validateModelInput(raw: {
   id?: unknown;
   name?: unknown;
   adapterType?: unknown;
+  providerId?: unknown;
   apiConfig?: unknown;
   pricing?: unknown;
 }): { ok: true } | { ok: false; error: string } {
@@ -93,15 +99,23 @@ export function validateModelInput(raw: {
   if (!ADAPTER_TYPES.includes(raw.adapterType as AdapterType)) {
     return { ok: false, error: `adapterType must be one of ${ADAPTER_TYPES.join(", ")}.` };
   }
-  const cfg = raw.apiConfig as Partial<ModelApiConfig> | undefined;
-  if (typeof cfg?.apiBase !== "string" || !cfg.apiBase.trim()) {
+  if (raw.providerId !== undefined && raw.providerId !== null && (typeof raw.providerId !== "string" || !getProvider(raw.providerId))) return { ok: false, error: "Select a registered provider." };
+  const provider = typeof raw.providerId === "string" ? getProvider(raw.providerId) : null;
+  if (provider && raw.adapterType === "llm_chat" && provider.protocol !== "openai_chat") return { ok: false, error: "Non-OpenAI providers need a custom HTTP mapping." };
+  const cfg = (raw.apiConfig ?? {}) as Partial<ModelApiConfig>;
+  if (!provider && (typeof cfg?.apiBase !== "string" || !cfg.apiBase.trim())) {
     return { ok: false, error: "apiConfig.apiBase is required." };
   }
-  if (typeof cfg?.apiKeyEnvVar !== "string" || !cfg.apiKeyEnvVar.trim()) {
+  if (!provider && (typeof cfg?.apiKeyEnvVar !== "string" || !cfg.apiKeyEnvVar.trim())) {
     return { ok: false, error: "apiConfig.apiKeyEnvVar is required." };
   }
   if (raw.adapterType !== "custom_http" && (typeof cfg.modelId !== "string" || !cfg.modelId.trim())) {
     return { ok: false, error: "apiConfig.modelId is required for llm_chat and system_one." };
+  }
+  if (raw.adapterType === "custom_http") {
+    if (!provider) return { ok: false, error: "custom_http requires a registered provider." };
+    if (typeof cfg.requestTemplate !== "string") return { ok: false, error: "custom_http requires a JSON mapping." };
+    try { parseMapping(cfg.requestTemplate); } catch (error) { return { ok: false, error: error instanceof Error ? error.message : "Invalid JSON mapping." }; }
   }
   const p = raw.pricing as Partial<ModelPricing> | undefined;
   if (typeof p?.inputPerM !== "number" || typeof p?.outputPerM !== "number") {
@@ -114,6 +128,7 @@ export function createModel(input: {
   id: string;
   name: string;
   adapterType: AdapterType;
+  providerId?: string | null;
   apiConfig: ModelApiConfig;
   pricing: ModelPricing;
 }): { ok: true; model: ModelRow } | { ok: false; error: string } {
@@ -129,6 +144,7 @@ export function createModel(input: {
       JSON.stringify(input.apiConfig),
       JSON.stringify(input.pricing),
     );
+    if (input.providerId) d.prepare("UPDATE models SET provider_id = ? WHERE id = ?").run(input.providerId, input.id);
     return { ok: true, model: getModel(input.id)! };
   } catch (err) {
     if (err instanceof Error && err.message.includes("UNIQUE constraint failed")) {
@@ -140,18 +156,19 @@ export function createModel(input: {
 
 export function updateModel(
   id: string,
-  patch: Partial<{ name: string; adapterType: AdapterType; apiConfig: ModelApiConfig; pricing: ModelPricing }>,
+  patch: Partial<{ name: string; adapterType: AdapterType; providerId: string | null; apiConfig: ModelApiConfig; pricing: ModelPricing }>,
 ): { ok: true } | { ok: false; error: string } {
   const existing = getModel(id);
   if (!existing) return { ok: false, error: "Model not found." };
   const d = getDb();
   d.prepare(
-    `UPDATE models SET name = ?, adapter_type = ?, api_config_json = ?, pricing_json = ? WHERE id = ?`,
+    `UPDATE models SET name = ?, adapter_type = ?, api_config_json = ?, pricing_json = ?, provider_id = ? WHERE id = ?`,
   ).run(
     patch.name ?? existing.name,
     patch.adapterType ?? existing.adapterType,
     JSON.stringify(patch.apiConfig ?? existing.apiConfig),
     JSON.stringify(patch.pricing ?? existing.pricing),
+    patch.providerId === undefined ? existing.providerId ?? null : patch.providerId,
     id,
   );
   return { ok: true };

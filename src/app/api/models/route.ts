@@ -20,6 +20,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     id: b.id,
     name: b.name,
     adapterType: b.adapterType,
+    providerId: b.providerId,
     apiConfig: b.apiConfig,
     pricing: b.pricing,
   });
@@ -31,6 +32,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     id: b.id,
     name: String(b.name),
     adapterType: b.adapterType as AdapterType,
+    providerId: b.providerId as string | undefined,
     apiConfig: b.apiConfig as never,
     pricing: b.pricing as never,
   });

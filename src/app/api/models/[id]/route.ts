@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { deleteModel, updateModel, validateModelInput } from "@/lib/models";
+import { deleteModel, getModel, updateModel, validateModelInput } from "@/lib/models";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,11 +16,14 @@ export async function PATCH(
     return NextResponse.json({ error: "Request body must be JSON." }, { status: 400 });
   }
   const b = body as Record<string, unknown>;
+  const existing = getModel(id);
+  if (!existing) return NextResponse.json({ error: "Model not found." }, { status: 404 });
   const check = validateModelInput({
-    name: b.name ?? undefined,
-    adapterType: b.adapterType ?? undefined,
-    apiConfig: b.apiConfig ?? undefined,
-    pricing: b.pricing ?? undefined,
+    name: b.name ?? existing.name,
+    adapterType: b.adapterType ?? existing.adapterType,
+    providerId: b.providerId ?? existing.providerId,
+    apiConfig: b.apiConfig ?? existing.apiConfig,
+    pricing: b.pricing ?? existing.pricing,
   });
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 });
   const result = updateModel(id, b as never);
