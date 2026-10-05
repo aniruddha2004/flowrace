@@ -1,4 +1,5 @@
 import https from "node:https";
+import http from "node:http";
 
 // Shared HTTP transport for all server-side API calls. We deliberately avoid
 // global fetch: its default undici connect timeout (10s) is fatal against
@@ -55,10 +56,12 @@ export function postJson(
   return new Promise((resolve, reject) => {
     const data = JSON.stringify(payload);
     const target = new URL(url);
-    const req = https.request(
+    if (target.protocol !== "https:" && target.protocol !== "http:") throw new Error("Only HTTP(S) endpoints are supported.");
+    const transport = target.protocol === "http:" ? http : https;
+    const req = transport.request(
       {
         hostname: target.hostname,
-        port: target.port || 443,
+        port: target.port || (target.protocol === "http:" ? 80 : 443),
         path: target.pathname + target.search,
         method: "POST",
         headers: {
