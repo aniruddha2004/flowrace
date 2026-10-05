@@ -57,30 +57,30 @@ export function FieldRow({ label, value, confidence, accent, agree }: FieldRowPr
   }, [target]);
 
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 py-2.5">
-      <span className="w-20 shrink-0 truncate text-[13px] text-ink-soft" title={label}>{label}</span>
+    <div className="field-arrive grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2 py-3.5">
+      <span className="min-w-0 truncate text-xs text-ink-soft" title={label}>{label}</span>
       <span
-        className={`max-w-full min-w-0 truncate rounded-md border ${a.chipBorder} ${a.softBg} ${a.text} px-2.5 py-1 text-xs font-medium`}
+        className={`max-w-full min-w-0 truncate rounded-[5px] border ${a.chipBorder} ${a.softBg} ${a.text} px-2.5 py-1 text-xs font-semibold`}
         title={value}
       >
         {value}
       </span>
-      <div className="relative h-1.5 min-w-0 w-16 overflow-hidden rounded-full bg-track flex-1">
+      <div className="relative h-1 min-w-0 self-center overflow-hidden rounded-full bg-track">
         <div
           className={`absolute inset-y-0 left-0 rounded-full ${a.barBg} transition-[width] duration-700 ease-out`}
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="w-9 shrink-0 text-right font-mono text-xs tabular-nums text-ink-soft">
-        {target}
+      <span className="text-right font-mono text-[11px] tabular-nums text-ink-soft">
+        {target}%
       </span>
       {agree !== undefined && agree !== null && (
         <span
           key={String(agree)}
-          className={`animate-pop shrink-0 rounded-md px-2 py-0.5 font-mono text-[10px] font-semibold uppercase ${
+          className={`animate-pop col-span-2 w-fit shrink-0 rounded-md px-2 py-0.5 text-[10px] font-semibold ${
             agree
-              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300"
-              : "bg-rose-100 text-rose-700 dark:bg-rose-900/60 dark:text-rose-300"
+              ? "bg-good-soft text-good"
+              : "bg-bad-soft text-bad"
           }`}
         >
           {agree ? "agree" : "diff"}
@@ -94,11 +94,10 @@ export function FieldSkeleton({ labels }: { labels: string[] }) {
   return (
     <div className="space-y-2">
       {labels.map((label) => (
-        <div key={label} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 py-2.5">
-          <span className="w-20 shrink-0 truncate text-[13px] text-muted">{label}</span>
+        <div key={label} className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 py-3.5">
+          <span className="min-w-0 truncate text-xs text-muted">{label}</span>
           <span className="skeleton-shimmer h-6 w-16 rounded-md" />
-          <div className="skeleton-shimmer h-1.5 w-16 flex-1 rounded-full" />
-          <span className="w-9 shrink-0" />
+          <div className="skeleton-shimmer col-span-2 h-1 rounded-full" />
         </div>
       ))}
     </div>

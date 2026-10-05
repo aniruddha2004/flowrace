@@ -15,8 +15,8 @@
   --color-line: #dce3ed;
   --color-accent-a: #345beb;
   --color-accent-a-soft: #ebefff;
-  --color-accent-b: #345beb;
-  --color-accent-b-soft: #ebefff;
+  --color-accent-b: #337586;
+  --color-accent-b-soft: #e4f3f5;
   --color-track: #eaf0f6;
   --color-muted: #75839a;
   --color-brand: #345beb;
@@ -41,8 +41,8 @@ html.dark {
   --color-line: #304055;
   --color-accent-a: #95aaff;
   --color-accent-a-soft: #28395c;
-  --color-accent-b: #95aaff;
-  --color-accent-b-soft: #28395c;
+  --color-accent-b: #83c6d1;
+  --color-accent-b-soft: #1b3b48;
   --color-track: #233146;
   --color-muted: #93a2ba;
   --color-brand: #95aaff;
