@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { seedPlatform } from "./projects";
 import { seedFlows } from "./flows";
+import { seedProviders } from "./providers";
 
 // ---------------------------------------------------------------------------
 // SQLite via better-sqlite3. Singleton per process. The caller (API route)
@@ -52,6 +53,14 @@ function migrate(d: Database.Database): void {
       pricing_json TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+    CREATE TABLE IF NOT EXISTS providers (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      protocol TEXT NOT NULL,
+      api_base TEXT NOT NULL,
+      api_key_env_var TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
     CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -85,9 +94,11 @@ function migrate(d: Database.Database): void {
   addColumnIfMissing(d, "projects", "input_label", "TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(d, "projects", "cross_cutting_clues_json", "TEXT NOT NULL DEFAULT '[]'");
   addColumnIfMissing(d, "sessions", "project_id", "TEXT REFERENCES projects(id)");
+  addColumnIfMissing(d, "models", "provider_id", "TEXT");
 
   seedLegacy(d);
   seedPlatform();
+  seedProviders();
   seedFlows(d);
   d.exec("DROP TABLE IF EXISTS taxonomy_options");
   d.exec("UPDATE sessions SET project_id = 'support-ticket-triage' WHERE project_id IS NULL");
