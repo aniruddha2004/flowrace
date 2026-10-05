@@ -44,3 +44,8 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 data/
+
+# local Python runtime artifacts
+/.venv-gliner/
+__pycache__/
+*.pyc
