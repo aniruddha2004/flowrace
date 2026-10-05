@@ -16,8 +16,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const input = { name: patch.name ?? existing.name, protocol: patch.protocol ?? existing.protocol, apiBase: patch.apiBase ?? existing.apiBase, apiKeyEnvVar: patch.apiKeyEnvVar ?? existing.apiKeyEnvVar, apiKey: patch.apiKey, clearKey: patch.clearKey };
   const error = validateProvider(input);
   if (error) return NextResponse.json({ error }, { status: 400 });
-  const provider = updateProvider(id, input as { name: string; protocol: ProviderProtocol; apiBase: string; apiKeyEnvVar: string; apiKey?: string; clearKey?: boolean });
-  return NextResponse.json({ provider });
+  try {
+    const provider = updateProvider(id, input as { name: string; protocol: ProviderProtocol; apiBase: string; apiKeyEnvVar: string; apiKey?: string; clearKey?: boolean });
+    return NextResponse.json({ provider });
+  } catch (cause) {
+    return NextResponse.json({ error: cause instanceof Error ? cause.message : "Could not update provider." }, { status: 409 });
+  }
 }
 
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }): Promise<NextResponse> {

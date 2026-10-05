@@ -71,7 +71,10 @@ export function createProvider(input: { id: string; name: string; protocol: Prov
 }
 
 export function updateProvider(id: string, input: { name: string; protocol: ProviderProtocol; apiBase: string; apiKeyEnvVar: string; apiKey?: string; clearKey?: boolean }): ProviderRow | null {
-  if (!getProvider(id)) return null;
+  const previous = getProvider(id);
+  if (!previous) return null;
+  const count = (getDb().prepare("SELECT COUNT(*) AS n FROM models WHERE provider_id = ?").get(id) as { n: number }).n;
+  if (count && previous.protocol !== input.protocol) throw new Error("Remove registered models before changing the provider protocol.");
   getDb().prepare("UPDATE providers SET name = ?, protocol = ?, api_base = ?, api_key_env_var = ? WHERE id = ?")
     .run(input.name, input.protocol, input.apiBase.replace(/\/$/, ""), input.apiKeyEnvVar, id);
   if (input.clearKey) setSecret(id, null);
