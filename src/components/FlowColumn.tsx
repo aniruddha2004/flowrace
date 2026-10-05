@@ -25,7 +25,7 @@ interface FlowColumnProps {
 function StepNode({ step, label, accent }: { step: StepState; label: string; accent: Accent }) {
   const a = ACCENT[accent];
   return (
-    <div className="flex items-center gap-2">
+    <div className={`flex min-w-0 items-center gap-2.5 rounded-md px-2 py-2 ${step.status === "running" ? "step-running bg-brand-soft/60" : ""} ${step.status === "done" ? "field-arrive" : ""}`}>
       {step.status === "running" ? (
         <span
           aria-hidden
@@ -38,12 +38,12 @@ function StepNode({ step, label, accent }: { step: StepState; label: string; acc
             step.status === "done"
               ? a.dotBg
               : step.status === "error"
-                ? "bg-rose-500"
+                 ? "bg-bad"
                 : "bg-track"
           }`}
         />
       )}
-      <span className="font-mono text-[11px] text-ink-soft">{label}</span>
+       <span className="min-w-0 flex-1 truncate text-xs text-ink-soft" title={label}>{label}</span>
       {typeof step.ms === "number" && (
         <span className="font-mono text-[11px] tabular-nums text-ink">· {fmtMs(step.ms)}</span>
       )}
@@ -54,30 +54,30 @@ function StepNode({ step, label, accent }: { step: StepState; label: string; acc
 function StatusChip({ state }: { state: FlowState }) {
   if (state.error) {
     return (
-      <span className="rounded-md bg-rose-100 px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-wide text-rose-700 dark:bg-rose-900/50 dark:text-rose-300">
-        error
+      <span className="rounded-md bg-bad-soft px-2.5 py-1 text-[10px] font-semibold text-bad">
+        Failed
       </span>
     );
   }
   if (state.totals) {
     return (
-      <span className="rounded-md bg-emerald-100 px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
-        done
+      <span className="rounded-md bg-good-soft px-2.5 py-1 text-[10px] font-semibold text-good">
+        Complete
       </span>
     );
   }
   const anyRunning = state.steps.some((step) => step.status === "running");
   if (anyRunning) {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-md bg-track px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-wide text-ink-soft">
+      <span className="inline-flex items-center gap-1.5 rounded-md bg-brand-soft px-2.5 py-1 text-[10px] font-semibold text-brand">
         <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" aria-hidden />
-        running
+        Running
       </span>
     );
   }
   return (
-    <span className="rounded-md bg-track px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-wide text-muted">
-      idle
+    <span className="rounded-md bg-track px-2.5 py-1 text-[10px] font-semibold text-muted">
+      Ready
     </span>
   );
 }
@@ -147,12 +147,12 @@ function SignalsExplainer({
         <ul className="list-disc space-y-2 px-5 py-4 pl-9 text-sm leading-relaxed text-ink-soft">
           <li>
             <strong className="text-ink">Each row</strong> is an independent
-            yes/no check against the ticket&apos;s actual content — not a vote
+            yes/no check against the input&apos;s actual content — not a vote
             for the final answer.
           </li>
           <li>
             <strong className="text-ink">The number (0–100)</strong> is how
-            confident Jev is that this specific clue is true of the ticket —
+            confident Jev is that this specific clue is true of the input —
             not its confidence in the overall category / priority / route.
           </li>
           <li>
@@ -164,10 +164,10 @@ function SignalsExplainer({
           <li>
             <strong className="text-ink">Cross-cutting</strong> clues are
             not tied to any one field — they add context that matters to all
-            of them (e.g. whether multiple issues are bundled in one ticket).
+            of them (e.g. whether multiple issues are bundled in one input).
           </li>
         </ul>
-        <p className="border-t border-line px-5 py-3 font-mono text-[11px] leading-relaxed text-muted">
+        <p className="border-t border-line px-5 py-3 text-xs leading-relaxed text-muted">
           These are Jev&apos;s native per-question answers from the same pass
           that made the decision — real independent checks, not text
           generated to sound like reasoning.
@@ -293,38 +293,36 @@ export function FlowColumn({ accent, title, subtitle, state, schema, project, fi
   const freeFields = freeTextFields(schema);
 
   return (
-    <section className="flex flex-col overflow-hidden rounded-xl border border-line bg-panel">
-      <header className={`flex items-start justify-between gap-3 border-b border-line p-5 ${a.softBg}`}>
+    <section className="ui-surface flex min-w-0 flex-col overflow-hidden">
+      <header className="flex items-start justify-between gap-3 border-b border-line p-5">
         <div className="flex min-w-0 items-start gap-3">
-          <span aria-hidden className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${a.dotBg}`} />
+          <span aria-hidden className={`mt-1 h-3 w-1 shrink-0 rounded-full ${a.dotBg}`} />
           <div className="min-w-0">
-            <h2 className={`font-display text-base font-semibold break-words ${a.text}`}>{title}</h2>
-            <p className="mt-0.5 max-w-sm text-xs leading-relaxed text-ink-soft">{subtitle}</p>
+            <h2 className="font-display text-sm font-semibold break-words text-ink">{title}</h2>
+            <p className="mt-1 max-w-sm break-words font-mono text-[10px] leading-relaxed text-muted">{subtitle}</p>
           </div>
         </div>
         <StatusChip state={state} />
       </header>
 
       {!started ? (
-        <div className="m-5 flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed border-line p-10 text-center">
-          <p className="font-display text-sm font-medium text-muted">Awaiting a run</p>
-          <p className="mt-1 max-w-56 text-xs leading-relaxed text-muted">
-            Paste a ticket above and press Run Race — this column fills in live.
+        <div className="m-4 flex min-h-52 flex-1 flex-col items-center justify-center rounded-md border border-dashed border-line bg-track/20 p-7 text-center">
+          <span className={`mb-3 flex h-8 w-8 items-center justify-center rounded-md ${a.softBg} ${a.text}`} aria-hidden>↗</span>
+          <p className="font-display text-sm font-semibold text-ink">Ready to race</p>
+          <p className="mt-1 max-w-56 text-xs leading-relaxed text-ink-soft">
+            Provide an input above to watch this pipeline run step by step.
           </p>
         </div>
       ) : (
-        <div className="animate-rise flex flex-1 flex-col gap-6 p-5">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg bg-paper px-4 py-3">
-            {state.steps.map((step, index) => <div key={`${step.stepId}-${index}`} className="flex items-center gap-3">
-              {index > 0 && <span aria-hidden className="h-px w-4 bg-line" />}
-              <StepNode step={step} label={`${step.modelName} — ${step.role}`} accent={accent} />
-            </div>)}
+        <div className="flex flex-1 flex-col gap-5 p-4 sm:p-5">
+          <div className="rounded-md border border-line bg-track/20 p-3"><p className="mb-2 text-xs font-semibold text-ink-soft">Execution path</p>
+            <div className="relative ml-1.5 border-l border-line pl-3">{state.steps.map((step, index) => <StepNode key={`${step.stepId}-${index}`} step={step} label={`${step.modelName} · ${step.role}`} accent={accent} />)}</div>
           </div>
 
           {state.error && state.steps.find((step) => step.stepId === state.error?.step)?.role === "decide" && <ErrorCard state={state} />}
 
           <div>
-            <h3 className="mb-1 font-display text-sm font-medium text-ink">Classification</h3>
+            <h3 className="mb-1 font-display text-sm font-semibold text-ink">Structured output</h3>
             {state.analysis ? (
               <div className="divide-y divide-line">
                 {fields.map((field) => (
@@ -374,30 +372,30 @@ export function FlowColumn({ accent, title, subtitle, state, schema, project, fi
         </div>
       )}
 
-      <footer className="mt-auto border-t border-line bg-paper px-5 py-3">
+       <footer className="mt-auto border-t border-line bg-track/30 px-4 py-4 sm:px-5">
         {state.steps.some((step) => step.metrics) && (
           <div className="mb-2 space-y-0.5 border-b border-line pb-2 font-mono text-[11px] tabular-nums">
             {state.steps.filter((step) => step.metrics).map((step) => <MetricLine key={`${step.stepId}-${step.stepIndex}`} engine={step.modelName} step={step.role} ms={step.ms} metrics={step.metrics!} highlight={accent} />)}
           </div>
         )}
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-xs tabular-nums text-ink-soft">
-          <span>
-            latency <span className="text-ink">{state.totals ? fmtMs(state.totalMs ?? 0) : "—"}</span>
+         <div className="grid grid-cols-2 gap-x-3 gap-y-3 font-mono text-[11px] tabular-nums text-ink-soft">
+           <span className="flex min-w-0 flex-col gap-1">
+             latency <span className="truncate text-xs font-semibold text-ink">{state.totals ? fmtMs(state.totalMs ?? 0) : "—"}</span>
           </span>
-          <span>
-            tokens{" "}
-            <span className="text-ink">
+           <span className="flex min-w-0 flex-col gap-1">
+             tokens{" "}
+             <span className="truncate text-xs font-semibold text-ink" title={state.totals ? `${fmtTokens(state.totals.inputTokens)} in / ${fmtTokens(state.totals.outputTokens)} out` : undefined}>
               {state.totals
                 ? `${fmtTokens(state.totals.inputTokens)} in / ${fmtTokens(state.totals.outputTokens)} out`
                 : "—"}
             </span>
           </span>
-          <span>
-            cost <span className="text-ink">{state.totals ? fmtCost(state.totals.costUsd) : "—"}</span>
+           <span className="flex min-w-0 flex-col gap-1">
+             cost <span className="truncate text-xs font-semibold text-ink">{state.totals ? fmtCost(state.totals.costUsd) : "—"}</span>
             {flow && <RatesInfo flow={flow} models={models} />}
           </span>
-          <span>
-            parseErrors <span className="text-ink">{state.totals ? state.totals.parseErrors : "—"}</span>
+           <span className="flex min-w-0 flex-col gap-1">
+             parse errors <span className="text-xs font-semibold text-ink">{state.totals ? state.totals.parseErrors : "—"}</span>
           </span>
         </div>
       </footer>

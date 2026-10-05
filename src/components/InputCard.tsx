@@ -14,10 +14,10 @@ export function InputCard({ text, running, onTextChange, onRun, inputLabel, sele
   const canRun = trimmed.length > 0 && !running && selectedCount >= 2;
 
   return (
-    <section className="rounded-xl border border-line bg-panel p-5 sm:p-6">
+    <section className="ui-surface p-5">
       <div className="mb-3 flex items-baseline justify-between">
-        <label htmlFor="ticket-input" className="font-display text-sm font-semibold text-ink">
-          {inputLabel ?? "Input"}
+        <label htmlFor="ticket-input" className="font-display text-base font-semibold text-ink">
+          Run input
         </label>
         <span className="font-mono text-xs tabular-nums text-muted">
           {text.length.toLocaleString("en-US")} chars
@@ -27,11 +27,11 @@ export function InputCard({ text, running, onTextChange, onRun, inputLabel, sele
         id="ticket-input"
         value={text}
         onChange={(e) => onTextChange(e.target.value)}
-        placeholder="Paste raw support-ticket text here — an email, chat transcript, or complaint…"
-        rows={7}
-        className="w-full resize-y rounded-lg border border-line bg-paper p-4 text-sm leading-relaxed text-ink placeholder:text-muted transition-colors focus:border-accent-b/50 focus:outline-none focus:ring-2 focus:ring-accent-b/20"
+        placeholder={`Paste ${inputLabel?.toLowerCase() ?? "the input text"} here…`}
+        rows={4}
+        className="ui-input min-h-28 resize-y leading-relaxed placeholder:text-muted"
       />
-      <div className="mt-4 flex flex-col items-stretch justify-between gap-3 sm:flex-row sm:items-center">
+      <div className="mt-3 flex flex-col items-stretch justify-between gap-3 sm:flex-row sm:items-center">
         <p className="text-xs text-ink-soft">
           {selectedCount < 2 ? "Select at least two flows to race." : `${selectedCount} flows run concurrently — results stream in live.`}
         </p>
@@ -39,7 +39,7 @@ export function InputCard({ text, running, onTextChange, onRun, inputLabel, sele
           title={
             !canRun
               ? selectedCount < 2 ? "Select at least two flows" : trimmed.length === 0
-                ? "Paste a support ticket above first"
+                ? "Provide an input above first"
                 : "A race is already running"
               : undefined
           }
@@ -48,7 +48,7 @@ export function InputCard({ text, running, onTextChange, onRun, inputLabel, sele
             type="button"
             onClick={onRun}
             disabled={!canRun}
-            className="inline-flex items-center justify-center gap-2 rounded-lg bg-ink px-6 py-3 font-display text-sm font-semibold text-paper transition hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+            className="ui-button ui-button-primary w-full whitespace-nowrap sm:w-auto"
           >
             {running && (
               <span
