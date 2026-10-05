@@ -61,4 +61,5 @@ export interface ModelAdapter {
   runDecision(input: DecisionInput): Promise<DecisionOutput>;
   runGenerate(input: GenerateInput): Promise<GenerateOutput>;
   readonly model: ModelRow;
+  cost(inputTokens: number, outputTokens: number): number;
 }

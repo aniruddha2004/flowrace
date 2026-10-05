@@ -1,34 +1,34 @@
 import { LlmChatAdapter } from "./adapters/llm-chat";
 import { SystemOneAdapter } from "./adapters/system-one";
+import { CustomHttpAdapter } from "./adapters/custom-http";
 import type { ModelAdapter } from "./adapters/types";
 import { getModel } from "./models";
+import { getProvider, providerKey } from "./providers";
 
 // ---------------------------------------------------------------------------
 // Registry — resolves a models-table row + its API key into a live adapter.
 // ---------------------------------------------------------------------------
 
-function resolveApiKey(envVar: string): string | undefined {
-  return (
-    process.env[envVar] ??
-    // Historical fallbacks from the pre-registry config — keep resolving so
-    // existing .env setups keep working without a rename.
-    process.env.JUSPAY_API_KEY ??
-    process.env.ANTHROPIC_API_KEY
-  );
+function resolveApiKey(envVar: string, modelId: string): string | undefined {
+  return process.env[envVar] ?? (modelId === "kimi-k3" || modelId === "jev" ? process.env.JUSPAY_API_KEY ?? process.env.ANTHROPIC_API_KEY : undefined);
 }
 
 export function getAdapter(modelId: string): ModelAdapter {
   const model = getModel(modelId);
   if (!model) throw new Error(`Model "${modelId}" is not in the registry.`);
-  if (model.adapterType === "custom_http") {
-    throw new Error("custom_http adapters are reserved but not implemented yet.");
-  }
-  const key = resolveApiKey(model.apiConfig.apiKeyEnvVar);
-  if (!key) {
+  const provider = model.providerId ? getProvider(model.providerId) : null;
+  if (model.providerId && !provider) throw new Error(`Provider "${model.providerId}" no longer exists.`);
+  const key = provider ? providerKey(provider) ?? resolveApiKey(provider.apiKeyEnvVar, model.id) : resolveApiKey(model.apiConfig.apiKeyEnvVar, model.id);
+  if (!key && (provider?.apiKeyEnvVar || !provider)) {
     throw new Error(
-      `No API key configured for model "${modelId}" — add ${model.apiConfig.apiKeyEnvVar} to .env.local.`,
+      `No API key configured for model "${modelId}" — connect provider or set ${provider?.apiKeyEnvVar ?? model.apiConfig.apiKeyEnvVar} in .env.local.`,
     );
   }
-  if (model.adapterType === "llm_chat") return new LlmChatAdapter(model, key);
-  return new SystemOneAdapter(model, key);
+  const effective = provider ? { ...model, apiConfig: { ...model.apiConfig, apiBase: provider.apiBase, apiKeyEnvVar: provider.apiKeyEnvVar } } : model;
+  if (model.adapterType === "custom_http") {
+    if (!provider) throw new Error("Custom HTTP models require a connected provider.");
+    return new CustomHttpAdapter(effective, provider, key);
+  }
+  if (model.adapterType === "llm_chat") return new LlmChatAdapter(effective, key ?? "");
+  return new SystemOneAdapter(effective, key ?? "");
 }
