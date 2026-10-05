@@ -1,5 +1,4 @@
-import type { LlmChatAdapter } from "../adapters/llm-chat";
-import type { QuestionSpec } from "../adapters/types";
+import type { ModelAdapter, QuestionSpec } from "../adapters/types";
 import type { OutputSchema, Project } from "../projects";
 import { SCHEMA_VERSION, type FlowAnalysis } from "../schema";
 import { decisionFields, freeTextFields } from "./buildQuestions";
@@ -110,7 +109,7 @@ export async function decide(
   inputText: string,
   schema: OutputSchema,
   st: FlowSettings,
-  adapter: LlmChatAdapter,
+  adapter: ModelAdapter,
   promptOverride?: string,
 ): Promise<DecideResult> {
   const fields = decisionFields(schema);
@@ -158,7 +157,7 @@ export async function generate(
   analysis: FlowAnalysis,
   st: FlowSettings,
   schema: OutputSchema,
-  adapter: LlmChatAdapter,
+  adapter: ModelAdapter,
   promptOverride?: string,
 ): Promise<GenerateResult> {
   const field = freeTextFields(schema).find((f) => f.key === fieldKey);
@@ -191,7 +190,7 @@ export async function generateFrom(
   decisions: FlowAnalysis,
   st: FlowSettings,
   schema: OutputSchema,
-  adapter: LlmChatAdapter,
+  adapter: ModelAdapter,
   promptOverride?: string,
 ): Promise<GenerateResult> {
   const field = freeTextFields(schema).find((f) => f.key === fieldKey);

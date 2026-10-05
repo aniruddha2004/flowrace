@@ -1,5 +1,6 @@
-import { LLMError, LLMParseError, LlmChatAdapter } from "./adapters/llm-chat";
+import { LLMError, LLMParseError } from "./adapters/llm-chat";
 import { JevAuthError, JevError, SystemOneAdapter } from "./adapters/system-one";
+import { MappingError } from "./adapters/custom-http";
 import type { FlowTotals, RaceEvent, StepMetrics } from "./events";
 import type { Flow } from "./flows";
 import { getModel } from "./models";
@@ -49,6 +50,7 @@ function errorCode(err: unknown): string {
   if (err instanceof JevError) return "jev_http";
   if (err instanceof LLMParseError) return "llm_parse";
   if (err instanceof LLMError) return "llm_http";
+  if (err instanceof MappingError) return "mapping_http";
   return "internal";
 }
 
@@ -75,7 +77,7 @@ export async function runFlowDefinition(flow: Flow, text: string, settings: Flow
         const ownedSchema = schema.filter((field) => step.ownsFields.includes(field.key) || field.type === "free_text");
         const output = model instanceof SystemOneAdapter
           ? await classifyWithJev(input, ownedSchema, settings, model, step.promptOverride)
-          : await decide(input, ownedSchema, settings, model as LlmChatAdapter, step.promptOverride);
+          : await decide(input, ownedSchema, settings, model, step.promptOverride);
         Object.assign(analysis.values, output.analysis.values);
         if (output.analysis.reasoning) analysis.reasoning = output.analysis.reasoning;
         if (output.analysis.signals) analysis.signals = { ...analysis.signals, ...output.analysis.signals };
@@ -95,7 +97,7 @@ export async function runFlowDefinition(flow: Flow, text: string, settings: Flow
         const metrics = emptyMetrics();
         for (const key of step.ownsFields) {
           const field = schema.find((item) => item.key === key)!;
-          if (!(model instanceof LlmChatAdapter)) throw new Error(`Model "${step.modelId}" cannot generate free text.`);
+           if (model instanceof SystemOneAdapter) throw new Error(`Model "${step.modelId}" cannot generate free text.`);
           if (step.seesPriorStepOutput && flow.steps[stepIndex - 1]?.role === "decide") {
             const previous = flow.steps[stepIndex - 1];
             const previousAnalysis = priorOutput as FlowAnalysis;

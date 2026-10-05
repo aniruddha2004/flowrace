@@ -1,6 +1,7 @@
 import type { FlowStep } from "./flows";
 import type { ModelRow } from "./models";
 import type { OutputSchema } from "./projects";
+import { parseMapping } from "./http-mapping";
 
 /** Shared pure validation for the builder and the API; neither trusts the other. */
 export function validateFlow(steps: unknown, schema: OutputSchema, models: ModelRow[]): string[] {
@@ -16,7 +17,12 @@ export function validateFlow(steps: unknown, schema: OutputSchema, models: Model
     else ids.add(step.id);
     const model = models.find((m) => m.id === step.modelId);
     if (!model) errors.push(`Step ${i + 1}: model "${String(step.modelId)}" is not registered.`);
-    else if (model.adapterType === "custom_http") errors.push(`Step ${i + 1}: custom_http model "${model.name}" is not implemented yet.`);
+    else if (model.adapterType === "custom_http") {
+      try {
+        const mapping = parseMapping(model.apiConfig.requestTemplate ?? "");
+        if (!mapping[step.role === "generate" ? "generate" : "decision"]) errors.push(`Step ${i + 1}: model "${model.name}" has no ${step.role} mapping.`);
+      } catch { errors.push(`Step ${i + 1}: model "${model.name}" has an invalid HTTP mapping.`); }
+    }
     else if (model.adapterType === "system_one" && step.role === "generate") errors.push(`Step ${i + 1}: system_one model "${model.name}" cannot generate free text.`);
     if (step.role !== "decide" && step.role !== "generate") errors.push(`Step ${i + 1} needs a decide or generate role.`);
     if (typeof step.seesPriorStepOutput !== "boolean") errors.push(`Step ${i + 1}: seesPriorStepOutput must be a boolean.`);
