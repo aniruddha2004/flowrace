@@ -22,6 +22,9 @@ import { SessionSidebar } from "@/components/SessionSidebar";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { WorkbenchShell, type WorkbenchView } from "@/components/WorkbenchShell";
 import { ProjectsHome, ProjectOverview } from "@/components/WorkspaceViews";
+import { DatasetsWorkspace } from "@/components/DatasetsWorkspace";
+import { EvaluationWorkspace } from "@/components/EvaluationWorkspace";
+import type { Dataset } from "@/lib/datasets";
 
 interface SavedFlow {
   analysis?: FlowAnalysis; freeText?: Record<string, string>; steps?: StoredStep[]; totalMs?: number;
@@ -82,6 +85,7 @@ export default function Home() {
   const [scoreboard, setScoreboard] = useState<ScoreboardData>(emptyScoreboard);
   const [historyVersion, setHistoryVersion] = useState(0);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const [evaluationDataset, setEvaluationDataset] = useState<Dataset | null>(null);
   const projectIdRef = useRef<string | null>(null);
   const activeProjectId = project?.id;
 
@@ -130,6 +134,7 @@ export default function Home() {
     const next = projects.find((item) => item.id === id);
     if (!next) return;
     projectIdRef.current = id; setProject(next); setView("overview");
+    setEvaluationDataset(null);
     setViewingSession(null); setViewingSchema(null); setText(""); setError(""); setScoreboard(emptyScoreboard(id));
     setHistoryVersion((version) => version + 1);
     await loadFlows(id);
@@ -214,6 +219,8 @@ export default function Home() {
     {view === "settings" && <SettingsPanel />}
     {project && view === "overview" && <ProjectOverview key={project.id} project={project} flows={flows} sessions={sessions} onChanged={() => void loadProjects(project.id)} onViewFlows={() => setView("flows")} onViewRace={() => setView("race")} />}
     {project && (view === "flows" || view === "builder") && <FlowManager key={project.id} project={project} initialFlows={flows} initialModels={models} onChange={() => void loadFlows(project.id)} onRace={() => setView("race")} />}
+    {project && view === "datasets" && <DatasetsWorkspace key={project.id} project={project} onEvaluate={(dataset) => { setEvaluationDataset(dataset); setView("evaluations"); }} />}
+    {project && view === "evaluations" && <EvaluationWorkspace key={project.id} project={project} flows={flows} initialDataset={evaluationDataset} onViewDatasets={() => setView("datasets")} />}
     {project && view === "race" && <div className="ui-page">
       <div className="mb-8 flex flex-wrap items-end justify-between gap-4"><div><p className="ui-kicker mb-2">{project.name} / LIVE COMPARISON</p><h1 className="font-display text-3xl font-semibold tracking-[-.05em] text-ink sm:text-[2.6rem]">Race pipelines</h1><p className="mt-2 text-sm text-ink-soft">One input. Multiple approaches. Every step visible as it runs.</p></div><span className="rounded-md border border-line bg-panel px-3 py-2 font-mono text-xs text-ink-soft">{flows.length} available flows</span></div>
       <div className="mb-6 grid gap-4 xl:grid-cols-[minmax(260px,.8fr)_minmax(0,1.2fr)]"><section className="ui-surface p-5"><div className="mb-4 flex items-center justify-between"><h2 className="font-display text-base font-semibold text-ink">Select competitors</h2><span className="font-mono text-xs text-muted">{selectedIds.length} selected · min 2</span></div><div className="flex flex-wrap gap-2">{flows.map((flow, index) => <label key={flow.id} className={`flex cursor-pointer items-center gap-2.5 rounded-md border px-3 py-2.5 text-sm transition-colors ${selectedIds.includes(flow.id) ? "border-brand bg-brand-soft text-brand" : "border-line text-ink-soft hover:border-brand/50"}`}><input type="checkbox" className="accent-[#345beb]" checked={selectedIds.includes(flow.id)} disabled={running} onChange={(e) => setSelectedIds((previous) => e.target.checked ? [...previous, flow.id] : previous.filter((id) => id !== flow.id))} /><span className={`h-2 w-2 rounded-full ${ACCENT[FLOW_ACCENTS[index % FLOW_ACCENTS.length]].dotBg}`} />{flow.name}</label>)}{flows.length === 0 && <p className="text-sm text-muted">No flows yet. <button className="font-semibold text-brand hover:underline" onClick={() => setView("flows")}>Build a flow</button> to get started.</p>}</div></section>

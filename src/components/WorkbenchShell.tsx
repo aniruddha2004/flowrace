@@ -4,11 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import type { Project } from "@/lib/projects";
 import { ThemeToggle } from "./ThemeToggle";
 
-export type WorkbenchView = "home" | "overview" | "flows" | "builder" | "race" | "history" | "models" | "settings";
+export type WorkbenchView = "home" | "overview" | "flows" | "builder" | "race" | "datasets" | "evaluations" | "history" | "models" | "settings";
 
 const tabs: { view: WorkbenchView; label: string }[] = [
   { view: "overview", label: "Overview" }, { view: "flows", label: "Flows" },
-  { view: "race", label: "Race" }, { view: "history", label: "History" },
+  { view: "race", label: "Race" }, { view: "datasets", label: "Datasets" },
+  { view: "evaluations", label: "Evaluations" }, { view: "history", label: "History" },
 ];
 
 export function WorkbenchShell({ children, projects, project, view, onProject, onView, onNewProject }: {
