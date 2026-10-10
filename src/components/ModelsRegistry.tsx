@@ -78,7 +78,7 @@ function ModelEditor({ model, suggestion, providers, onCancel, onSaved }: {
   </form>;
 }
 
-export function ModelsRegistry({ onChanged }: { onChanged?: () => void }) {
+export function ModelsRegistry({ section = "models", onChanged }: { section?: "models" | "providers"; onChanged?: () => void }) {
   const [models, setModels] = useState<ModelRow[]>([]);
   const [providers, setProviders] = useState<ProviderRow[]>([]);
   const [presets, setPresets] = useState<ProviderPreset[]>([]);
@@ -95,13 +95,16 @@ export function ModelsRegistry({ onChanged }: { onChanged?: () => void }) {
     setError(""); reloadModels(); onChanged?.();
   };
   return <div className="ui-page">
-    <div className="mb-9"><p className="ui-kicker mb-2">REGISTRY / MODELS</p><h1 className="font-display text-3xl font-semibold tracking-[-.05em] text-ink sm:text-[2.6rem]">Your model fleet</h1><p className="mt-2 text-sm text-ink-soft">Connect a provider, browse its model catalog, then add any engine to a pipeline. Specialized APIs can be mapped with JSON.</p></div>
+    <div className="mb-9"><p className="ui-kicker mb-2">REGISTRY / {section === "providers" ? "PROVIDERS" : "MODELS"}</p><h1 className="font-display text-3xl font-semibold tracking-[-.05em] text-ink sm:text-[2.6rem]">{section === "providers" ? "Provider connections" : "Your model fleet"}</h1><p className="mt-2 text-sm text-ink-soft">{section === "providers" ? "Connect an API once, discover its models, and keep credentials on the server." : "Register any model from a connected provider, including engines with custom JSON wire formats."}</p></div>
     {error && <p role="alert" className="mb-5 rounded-md bg-bad-soft p-3 text-sm text-bad">{error}</p>}
-    <ProviderConnections providers={providers} presets={presets} onRefresh={reloadProviders} onSelectModel={(model) => { setSuggestion(model); setEditing("new"); }} />
+    {section === "providers" && <ProviderConnections providers={providers} presets={presets} onRefresh={reloadProviders} onSelectModel={(model) => { setSuggestion(model); setEditing("new"); }} />}
+    {section === "models" && <>
     <div className="mb-4 flex flex-wrap items-end justify-between gap-3"><div><h2 className="font-display text-lg font-semibold text-ink">Registered models <span className="ml-1 font-mono text-sm font-normal text-muted">{models.length}</span></h2><p className="mt-1 text-xs text-ink-soft">Only registered models appear in the flow builder.</p></div><button className="ui-button ui-button-primary" onClick={() => { setSuggestion(undefined); setEditing("new"); }}>+ Register model</button></div>
+    </>}
     {editing && <ModelEditor key={editing === "new" ? `new-${suggestion?.id ?? "manual"}` : editing.id} model={editing === "new" ? undefined : editing} suggestion={suggestion} providers={providers} onCancel={() => { setEditing(null); setSuggestion(undefined); }} onSaved={() => { setEditing(null); setSuggestion(undefined); setError(""); reloadModels(); onChanged?.(); }} />}
+    {section === "models" &&
     <div className="ui-surface overflow-hidden"><div className="hidden grid-cols-[minmax(160px,1.2fr)_minmax(120px,.8fr)_minmax(130px,.8fr)_minmax(130px,1fr)_minmax(130px,1fr)_auto] gap-4 border-b border-line bg-track/40 px-5 py-3 text-xs font-medium text-ink-soft lg:grid"><span>Model</span><span>Provider</span><span>Adapter</span><span>Provider ID</span><span>Pricing / 1M</span><span>Actions</span></div>
       <div className="divide-y divide-line">{models.map((model) => <div key={model.id} className="grid gap-3 px-5 py-5 transition-colors hover:bg-track/30 lg:grid-cols-[minmax(160px,1.2fr)_minmax(120px,.8fr)_minmax(130px,.8fr)_minmax(130px,1fr)_minmax(130px,1fr)_auto] lg:items-center lg:gap-4"><div className="min-w-0"><p className="truncate text-sm font-semibold text-ink">{model.name}</p><code className="text-xs text-muted">{model.id}</code></div><span className="text-xs text-ink-soft">{providers.find((item) => item.id === model.providerId)?.name ?? "Legacy"}</span><div><AdapterBadge type={model.adapterType} /></div><code className="min-w-0 truncate text-xs text-ink-soft" title={model.apiConfig.modelId}>{model.apiConfig.modelId || "—"}</code><span className="font-mono text-xs text-ink-soft">${model.pricing.inputPerM} in / ${model.pricing.outputPerM} out</span><div className="flex items-center gap-3"><button className="text-xs font-semibold text-brand hover:underline" onClick={() => { setSuggestion(undefined); setEditing(model); }}>Edit</button><button className="text-xs text-bad hover:underline" onClick={() => void remove(model)}>Delete</button></div></div>)}{models.length === 0 && <p className="p-8 text-sm text-muted">Connect a provider and register its first model.</p>}</div>
-    </div>
+    </div>}
   </div>;
 }

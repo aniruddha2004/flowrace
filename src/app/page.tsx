@@ -215,7 +215,7 @@ export default function Home() {
 
   return <WorkbenchShell projects={projects} project={project} view={view} onProject={(id) => void switchProject(id)} onView={navigate} onNewProject={() => setNewProjectOpen(true)}>
     {view === "home" && <ProjectsHome projects={projects} flowCounts={flowCounts} sessions={sessions} onOpen={(id) => void switchProject(id)} onCreate={() => setNewProjectOpen(true)} />}
-    {view === "models" && <ModelsRegistry onChanged={() => void fetch("/api/models").then((res) => res.json()).then((data) => setModels(data.models ?? []))} />}
+    {(view === "models" || view === "providers") && <ModelsRegistry section={view} onChanged={() => void fetch("/api/models").then((res) => res.json()).then((data) => setModels(data.models ?? []))} />}
     {view === "settings" && <SettingsPanel />}
     {project && view === "overview" && <ProjectOverview key={project.id} project={project} flows={flows} sessions={sessions} onChanged={() => void loadProjects(project.id)} onViewFlows={() => setView("flows")} onViewRace={() => setView("race")} />}
     {project && (view === "flows" || view === "builder") && <FlowManager key={project.id} project={project} initialFlows={flows} initialModels={models} onChange={() => void loadFlows(project.id)} onRace={() => setView("race")} />}
