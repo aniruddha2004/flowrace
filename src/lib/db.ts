@@ -77,6 +77,24 @@ function migrate(d: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_flows_project ON flows(project_id, created_at);
+    CREATE TABLE IF NOT EXISTS datasets (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      name TEXT NOT NULL,
+      items_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_datasets_project ON datasets(project_id, created_at DESC);
+    CREATE TABLE IF NOT EXISTS eval_runs (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      dataset_id TEXT NOT NULL,
+      flow_ids_json TEXT NOT NULL,
+      status TEXT NOT NULL,
+      result_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_eval_runs_project ON eval_runs(project_id, created_at DESC);
     -- Legacy table kept as the migration SOURCE for seedPlatform(); dropped
     -- once the project row has been written.
     CREATE TABLE IF NOT EXISTS taxonomy_options (
