@@ -61,6 +61,26 @@ Mappings are validated before saving (path, placeholders, response paths, size, 
 - `POST /api/race` with `{ "projectId": "support-ticket-triage", "flowIds": ["llm-only", "jev-hybrid"], "text": "…" }` — newline-delimited streaming `step_start`, `step_done`, `flow_done`/`flow_error`, `run_done` events.
 - `GET /api/scoreboard?project=…` and `GET/DELETE /api/sessions` — aggregate comparisons and saved races.
 
+## Dataset evaluation
+
+Use the **Datasets** tab inside a project to paste JSON or upload CSV. Every item needs an `id` and `input`; `expected` is optional, may contain a subset of the project's non-free-text output fields, and uses enum option keys, numbers in the field range, or booleans. Unlabeled items still run and show outputs, but do not count toward accuracy. Validation reports errors by item before saving or running. The editor generates a schema-specific JSON/CSV sample.
+
+```json
+[
+  { "id": "ticket-1", "input": "My invoice was charged twice.",
+    "expected": { "category": "billing", "priority": "medium", "sentiment": -0.5, "route_to_team": "billing" } },
+  { "id": "ticket-2", "input": "An unlabeled support request." }
+]
+```
+
+CSV headers use `id,input,expected.category,expected.priority,...`; quoted commas and newlines are supported. Dataset snapshots are saved with each evaluation, so old reports remain readable after editing or deleting a dataset.
+
+In **Evaluations**, pick a dataset and 2–8 project flows. The preview shows the estimated number of model calls and cost using registry pricing plus a token estimate. Above `EVAL_CONFIRM_THRESHOLD_USD` (default `$2`), the UI and API require explicit confirmation. Choose 1–5 simultaneous items and optionally repeat each item 1–5 times. Runs stream persistent per-flow progress; cancellation stops scheduling new items while in-flight work finishes. Individual flow failures are recorded without stopping the dataset.
+
+The report contains per-field accuracy or numeric MAE and within-tolerance rate (tolerance defaults to `0.2` and can be changed), p50/p95 latency, total/mean cost, error counts, confidence calibration, contested-vs-clean signal accuracy, and repeat variance. Filter the per-item comparison for disagreements or errors, and download CSV or JSON. Saved reports can be reopened later.
+
+Evaluation endpoints: `GET/POST /api/projects/[id]/datasets`, `GET/PATCH/DELETE /api/datasets/[id]`, `POST /api/eval-runs/estimate`, `POST /api/eval-runs`, `GET /api/projects/[id]/eval-runs`, `GET/PATCH/DELETE /api/eval-runs/[id]`, and `GET /api/eval-runs/[id]/events` (NDJSON progress). The 50-ticket dataset mentioned during development was not in this checkout; `node scripts/dataset-fixtures.cjs` produces a clearly labeled representative replacement for local verification.
+
 ## Verify
 
 ```bash
@@ -70,6 +90,7 @@ npm run lint
 npm run build
 node scripts/seeded-parity.cjs
 node scripts/provider-mapping-smoke.cjs
+node scripts/evaluation-smoke.cjs
 ```
 
 The provider-mapping smoke test spins up a local mock HTTP provider, discovers a model, executes a decision and generation flow using only its JSON mapping, checks that the credential stays server-side, and cleans up its fixture records.
