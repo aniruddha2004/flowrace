@@ -17,14 +17,22 @@ export function floatTolerance(field: OutputField): number {
   return ((field.range?.max ?? 1) - (field.range?.min ?? 0)) / 10;
 }
 
-export function fieldAgree(field: OutputField, a: FlowAnalysis, b: FlowAnalysis): boolean {
+/** One definition of value agreement for both the race and dataset reports. */
+export function valuesAgree(field: OutputField, a: unknown, b: unknown, tolerance = floatTolerance(field)): boolean {
+  if (a === undefined || b === undefined) return false;
+  return field.type === "float_range" ? typeof a === "number" && typeof b === "number" && Math.abs(a - b) <= tolerance : a === b;
+}
+
+export function fieldAgree(field: OutputField, a: FlowAnalysis, b: FlowAnalysis, tolerance?: number): boolean {
   const va = a.values[field.key]?.value;
   const vb = b.values[field.key]?.value;
-  if (va === undefined || vb === undefined) return false;
-  if (field.type === "float_range") {
-    return Math.abs(Number(va) - Number(vb)) <= floatTolerance(field);
-  }
-  return va === vb;
+  return valuesAgree(field, va, vb, tolerance);
+}
+
+export function bestIds(rows: Array<[string, number]>, direction: "min" | "max" = "min"): string[] {
+  if (!rows.length) return [];
+  const target = direction === "min" ? Math.min(...rows.map(([, value]) => value)) : Math.max(...rows.map(([, value]) => value));
+  return rows.filter(([, value]) => value === target).map(([id]) => id);
 }
 
 export function agreementRatio(schema: OutputSchema, a: FlowAnalysis, b: FlowAnalysis): number {
