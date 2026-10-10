@@ -42,9 +42,10 @@ interface FieldRowProps {
   confidence: number;
   accent: Accent;
   agree?: boolean | null;
+  outcomeLabels?: [string, string];
 }
 
-export function FieldRow({ label, value, confidence, accent, agree }: FieldRowProps) {
+export function FieldRow({ label, value, confidence, accent, agree, outcomeLabels = ["agree", "diff"] }: FieldRowProps) {
   const a = ACCENT[accent];
   const target = Math.round(Math.min(1, Math.max(0, confidence)) * 100);
 
@@ -83,7 +84,7 @@ export function FieldRow({ label, value, confidence, accent, agree }: FieldRowPr
               : "bg-bad-soft text-bad"
           }`}
         >
-          {agree ? "agree" : "diff"}
+          {agree ? outcomeLabels[0] : outcomeLabels[1]}
         </span>
       )}
     </div>
