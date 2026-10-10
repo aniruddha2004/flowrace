@@ -18,8 +18,10 @@ export function WorkbenchShell({ children, projects, project, view, onProject, o
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      const stored = localStorage.getItem("flowrace-sidebar-collapsed");
-      setCollapsed(stored === null ? window.innerWidth < 1100 : stored === "true");
+      try {
+        const stored = localStorage.getItem("flowrace-sidebar-collapsed");
+        setCollapsed(stored === null ? window.innerWidth < 1100 : stored === "true");
+      } catch { setCollapsed(window.innerWidth < 1100); }
     }, 0);
     return () => clearTimeout(timer);
   }, []);
@@ -33,7 +35,7 @@ export function WorkbenchShell({ children, projects, project, view, onProject, o
 
   const toggleSidebar = () => {
     if (window.matchMedia("(max-width: 767px)").matches) { setSidebarOpen((open) => !open); setSwitcherOpen(false); }
-    else setCollapsed((previous) => { localStorage.setItem("flowrace-sidebar-collapsed", String(!previous)); return !previous; });
+    else setCollapsed((previous) => { try { localStorage.setItem("flowrace-sidebar-collapsed", String(!previous)); } catch { /* Sidebar still toggles when storage is unavailable. */ } return !previous; });
   };
   const navigate = (target: WorkbenchView) => { setSidebarOpen(false); onView(target); };
   const matches = projects.filter((item) => `${item.name} ${item.id}`.toLowerCase().includes(query.toLowerCase()));
