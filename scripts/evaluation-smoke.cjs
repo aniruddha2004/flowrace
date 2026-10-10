@@ -27,9 +27,9 @@ process.chdir(temporary);
 const { getDb } = require("../src/lib/db.ts");
 const { createProvider } = require("../src/lib/providers.ts");
 const { createModel } = require("../src/lib/models.ts");
-const { getDefaultProject } = require("../src/lib/projects.ts");
+const { getDefaultProject, createProject, deleteProject } = require("../src/lib/projects.ts");
 const { createFlow } = require("../src/lib/flows.ts");
-const { createDataset } = require("../src/lib/datasets.ts");
+const { createDataset, deleteDataset } = require("../src/lib/datasets.ts");
 const { estimateEvaluation, getEvaluation, setEvaluationStatus } = require("../src/lib/evaluations.ts");
 const { startEvaluation } = require("../src/lib/evaluation-runner.ts");
 const { computeEvaluationReport, evaluationCsv, itemHasDisagreement, itemHasWrongAnswer } = require("../src/lib/evaluation-report.ts");
@@ -102,6 +102,12 @@ const mapping = { path: "/run", auth: { mode: "none" },
     for (let i = 0; i < 100; i++) { after = getEvaluation(cancelled.id); if (after.status === "cancelled") break; await new Promise((resolve) => setTimeout(resolve, 80)); }
     assert.equal(after.status, "cancelled");
     assert.ok(after.result.completed < after.result.total);
+    const scratch = createProject({ id: "scratch", name: "Scratch", outputSchema: [] });
+    assert.equal(scratch.ok, true);
+    const scratchDataset = createDataset("scratch", "Only dataset", [{ id: "one", input: "x" }]);
+    assert.match(deleteProject("scratch").error, /dataset/);
+    deleteDataset(scratchDataset.id);
+    assert.deepEqual(deleteProject("scratch"), { ok: true });
     console.log("Dataset parsing, bounded evaluation, partial failures, report metrics, CSV and cancellation passed.");
   } finally {
     await new Promise((resolve) => server.close(resolve));
