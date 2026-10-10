@@ -148,6 +148,10 @@ export function deleteProject(id: string): { ok: true } | { ok: false; error: st
   if (flowCount) return { ok: false, error: `Project has ${flowCount} flow(s); delete them first.` };
   const raceCount = (getDb().prepare("SELECT COUNT(*) AS n FROM sessions WHERE project_id = ?").get(id) as { n: number }).n;
   if (raceCount) return { ok: false, error: `Project has ${raceCount} saved race(s); delete them first.` };
+  const evalCount = (getDb().prepare("SELECT COUNT(*) AS n FROM eval_runs WHERE project_id = ?").get(id) as { n: number }).n;
+  if (evalCount) return { ok: false, error: `Project has ${evalCount} saved evaluation(s); delete them first.` };
+  const datasetCount = (getDb().prepare("SELECT COUNT(*) AS n FROM datasets WHERE project_id = ?").get(id) as { n: number }).n;
+  if (datasetCount) return { ok: false, error: `Project has ${datasetCount} dataset(s); delete them first.` };
   getDb().prepare("DELETE FROM projects WHERE id = ?").run(id);
   return { ok: true };
 }
