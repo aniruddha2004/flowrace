@@ -105,10 +105,12 @@ body { background: var(--ui-paper); color: var(--ui-ink); }
 @keyframes chain-in { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes scan { from { background-position: 160% 0; } to { background-position: -160% 0; } }
 @keyframes arrive { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes drawer-in { from { opacity: .7; transform: translateX(-16px); } to { opacity: 1; transform: translateX(0); } }
 .animate-rise, .view-enter { animation: rise-in .3s cubic-bezier(.2,.8,.2,1) both; }
 .animate-modal { animation: rise-in .22s cubic-bezier(.2,.8,.2,1) both; }
 .animate-pop, .field-arrive { animation: arrive .35s cubic-bezier(.2,.8,.2,1) both; }
 .chain-extend { animation: chain-in .32s cubic-bezier(.2,.8,.2,1) both; }
+.drawer-enter { animation: drawer-in .22s cubic-bezier(.2,.8,.2,1) both; }
 .skeleton-shimmer { background: linear-gradient(100deg,var(--ui-track) 25%,var(--ui-brand-soft) 50%,var(--ui-track) 75%); background-size: 220% 100%; animation: scan 1.8s ease-in-out infinite; }
 .step-running { box-shadow: 0 0 0 3px var(--ui-brand-soft); }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important; } }
