@@ -88,7 +88,7 @@ export function parseDatasetCsv(source: string, schema: OutputSchema): DatasetIt
 }
 
 export function datasetSamples(schema: OutputSchema): { json: string; csv: string } {
-  const expected = Object.fromEntries(schema.filter((field) => field.type !== "free_text").map((field) => [field.key,
+  const expected = Object.fromEntries(schema.filter((field) => field.type !== "free_text" && (field.type !== "enum" || field.options?.length)).map((field) => [field.key,
     field.type === "enum" ? field.options?.[0]?.key ?? "option_key" : field.type === "boolean" ? true : field.range?.min ?? 0]));
   const fields = Object.keys(expected);
   return {
