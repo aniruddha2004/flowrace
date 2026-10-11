@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { fmtCost, fmtMs, fmtTokens } from "@/lib/format";
 import type { OutputSchema, Project } from "@/lib/projects";
-import type { FlowState, StepState } from "@/lib/race-state";
+import { flowProgress, type FlowState, type StepState } from "@/lib/race-state";
 import type { Flow } from "@/lib/flows";
 import type { ModelRow } from "@/lib/models";
 import { freeTextFields } from "@/lib/flows/buildQuestions";
@@ -25,25 +25,21 @@ interface FlowColumnProps {
 function StepNode({ step, label, accent }: { step: StepState; label: string; accent: Accent }) {
   const a = ACCENT[accent];
   return (
-    <div className={`flex min-w-0 items-center gap-2.5 rounded-md px-2 py-2 ${step.status === "running" ? "step-running bg-brand-soft/60" : ""} ${step.status === "done" ? "field-arrive" : ""}`}>
+    <div className={`flex min-w-0 items-center gap-2.5 rounded-md px-2 py-2 transition-colors ${step.status === "running" ? "bg-brand-soft/60" : ""} ${step.status === "done" ? "field-arrive" : ""}`}>
       {step.status === "running" ? (
         <span
           aria-hidden
-          className={`h-3.5 w-3.5 animate-spin rounded-full border-2 border-track border-t-current ${a.text}`}
+          className={`status-orbit h-3.5 w-3.5 rounded-full border-2 border-current bg-panel ${a.text}`}
         />
+      ) : step.status === "done" ? (
+        <span aria-hidden className={`flex h-4 w-4 items-center justify-center rounded-full ${a.dotBg} text-white`}><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-2.5 w-2.5"><path d="m3.5 8 3 3 6-6" /></svg></span>
       ) : (
         <span
           aria-hidden
-          className={`h-2.5 w-2.5 rounded-full transition-colors duration-300 ${
-            step.status === "done"
-              ? a.dotBg
-              : step.status === "error"
-                 ? "bg-bad"
-                : "bg-track"
-          }`}
+          className={`h-3.5 w-3.5 rounded-full border-2 ${step.status === "error" ? "border-bad bg-bad-soft" : "border-line bg-panel"}`}
         />
       )}
-       <span className="min-w-0 flex-1 truncate text-xs text-ink-soft" title={label}>{label}</span>
+      <span className={`min-w-0 flex-1 truncate text-xs ${step.status === "running" ? "font-semibold text-ink" : "text-ink-soft"}`} title={label}>{label}<span className="sr-only"> · {step.status}</span></span>
       {typeof step.ms === "number" && (
         <span className="font-mono text-[11px] tabular-nums text-ink">· {fmtMs(step.ms)}</span>
       )}
@@ -86,10 +82,10 @@ function ErrorCard({ state }: { state: FlowState }) {
   if (!state.error) return null;
   const isAuth = state.error.code === "jev_auth";
   return (
-    <div className="animate-rise rounded-xl border border-rose-200 bg-rose-50 p-4 dark:border-rose-800 dark:bg-rose-950/40">
+    <div className="animate-rise rounded-md border border-bad/30 bg-bad-soft p-4">
       <div className="mb-1 flex items-center gap-2">
         <svg
-          className="h-4 w-4 shrink-0 text-rose-600 dark:text-rose-400"
+          className="h-4 w-4 shrink-0 text-bad"
           viewBox="0 0 20 20"
           fill="currentColor"
           aria-hidden
@@ -100,16 +96,16 @@ function ErrorCard({ state }: { state: FlowState }) {
             clipRule="evenodd"
           />
         </svg>
-        <span className="font-display text-sm font-semibold text-rose-800 dark:text-rose-300">
+        <span className="font-display text-sm font-semibold text-bad">
           {isAuth ? "TypeSafe API key needed" : "Flow failed at this step"}
         </span>
-        <span className="rounded-md border border-rose-200 bg-rose-100 px-2 py-0.5 font-mono text-[10px] uppercase text-rose-600 dark:border-rose-800 dark:bg-rose-900 dark:text-rose-300">
+        <span className="rounded border border-bad/30 px-2 py-0.5 font-mono text-[10px] text-bad">
           {state.error.step} · {state.error.code}
         </span>
       </div>
-      <p className="text-sm leading-relaxed text-rose-700 dark:text-rose-400">{state.error.message}</p>
+      <p className="text-sm leading-relaxed text-bad">{state.error.message}</p>
       {isAuth && (
-        <p className="mt-2 font-mono text-xs text-rose-600 dark:text-rose-400">
+        <p className="mt-2 font-mono text-xs text-bad">
           add TYPESAFE_API_KEY to .env.local → restart the dev server
         </p>
       )}
@@ -284,6 +280,7 @@ function ReplyBlock({ text }: { text: string }) {
 
 export function FlowColumn({ accent, title, subtitle, state, schema, project, fieldsAgree, flow, models = [] }: FlowColumnProps) {
   const a = ACCENT[accent];
+  const running = state.steps.some((step) => step.status === "running");
   const started =
     state.steps.some((step) => step.status !== "idle") ||
     Boolean(state.error) ||
@@ -293,7 +290,7 @@ export function FlowColumn({ accent, title, subtitle, state, schema, project, fi
   const freeFields = freeTextFields(schema);
 
   return (
-    <section className="ui-surface flex min-w-0 flex-col overflow-hidden">
+    <section className={`ui-surface flex min-w-0 flex-col overflow-hidden transition-[border-color] duration-300 ${running ? "border-brand/40" : ""}`}>
       <header className="flex items-start justify-between gap-3 border-b border-line p-5">
         <div className="flex min-w-0 items-start gap-3">
           <span aria-hidden className={`mt-1 h-3 w-1 shrink-0 rounded-full ${a.dotBg}`} />
@@ -304,6 +301,10 @@ export function FlowColumn({ accent, title, subtitle, state, schema, project, fi
         </div>
         <StatusChip state={state} />
       </header>
+      <div className="relative h-[3px] bg-track" role="progressbar" aria-label={`${title} progress`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(flowProgress(state) * 100)}>
+        <div className={`relative h-full ${a.barBg} transition-[width] duration-500`} style={{ width: `${flowProgress(state) * 100}%` }} />
+        {running && <div className="pipeline-trace absolute inset-0" aria-hidden />}
+      </div>
 
       {!started ? (
         <div className="m-4 flex min-h-52 flex-1 flex-col items-center justify-center rounded-md border border-dashed border-line bg-track/20 p-7 text-center">
