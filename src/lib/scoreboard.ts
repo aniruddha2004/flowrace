@@ -1,4 +1,4 @@
-import { agreementRatio } from "./compare";
+import { agreementRatio, bestIds } from "./compare";
 import { getDb } from "./db";
 import { listFlows } from "./flows";
 import { getProject } from "./projects";
@@ -19,9 +19,8 @@ export interface ScoreboardPayload {
 interface StoredFlow { analysis?: unknown; totalMs?: number; totals?: { costUsd?: number; parseErrors?: number } }
 
 function tally(metric: MetricTally, values: Array<[string, number]>): void {
-  const min = Math.min(...values.map(([, n]) => n));
-  const winners = values.filter(([, n]) => n === min);
-  if (winners.length === 1) metric.byFlow[winners[0][0]] = (metric.byFlow[winners[0][0]] ?? 0) + 1;
+  const winners = bestIds(values);
+  if (winners.length === 1) metric.byFlow[winners[0]] = (metric.byFlow[winners[0]] ?? 0) + 1;
   else metric.tie += 1;
 }
 

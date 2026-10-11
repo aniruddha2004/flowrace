@@ -4,6 +4,7 @@ import { fmtCost, fmtMs } from "@/lib/format";
 import type { Flow } from "@/lib/flows";
 import type { OutputField } from "@/lib/projects";
 import type { FlowState } from "@/lib/race-state";
+import { bestIds } from "@/lib/compare";
 import { formatValue } from "./FieldRow";
 
 const GROUP_COLORS = [
@@ -16,8 +17,8 @@ const GROUP_COLORS = [
 
 export function ComparisonStrip({ flows, fields }: { flows: Array<{ flow: Flow; state: FlowState }>; fields: OutputField[] }) {
   if (flows.length < 2 || flows.some(({ state }) => !state.totals || !state.analysis)) return null;
-  const fastest = Math.min(...flows.map(({ state }) => state.totalMs ?? Infinity));
-  const cheapest = Math.min(...flows.map(({ state }) => state.totals!.costUsd));
+  const fastest = bestIds(flows.map(({ flow, state }) => [flow.id, state.totalMs ?? Infinity]));
+  const cheapest = bestIds(flows.map(({ flow, state }) => [flow.id, state.totals!.costUsd]));
   const groups = Object.fromEntries(fields.map((field) => {
     const values = [...new Set(flows.map(({ state }) => formatValue(field, state.analysis!.values[field.key]?.value)))];
     return [field.key, values];
@@ -32,8 +33,8 @@ export function ComparisonStrip({ flows, fields }: { flows: Array<{ flow: Flow; 
       </tr></thead>
       <tbody>{flows.map(({ flow, state }) => <tr key={flow.id} className="border-b border-line/60 align-top last:border-b-0 hover:bg-track/20">
         <th className="whitespace-nowrap px-5 py-4 text-left text-xs font-semibold text-ink">{flow.name}</th>
-        <td className="px-4 py-4 font-mono text-xs tabular-nums text-ink">{fmtMs(state.totalMs ?? 0)}{state.totalMs === fastest && <span className="ml-2 inline-flex rounded bg-good-soft px-1.5 py-0.5 font-sans text-[10px] font-semibold text-good">Fastest</span>}</td>
-        <td className="px-4 py-4 font-mono text-xs tabular-nums text-ink">{fmtCost(state.totals!.costUsd)}{state.totals!.costUsd === cheapest && <span className="ml-2 inline-flex rounded bg-good-soft px-1.5 py-0.5 font-sans text-[10px] font-semibold text-good">Lowest cost</span>}</td>
+        <td className="px-4 py-4 font-mono text-xs tabular-nums text-ink">{fmtMs(state.totalMs ?? 0)}{fastest.includes(flow.id) && <span className="ml-2 inline-flex rounded bg-good-soft px-1.5 py-0.5 font-sans text-[10px] font-semibold text-good">Fastest</span>}</td>
+        <td className="px-4 py-4 font-mono text-xs tabular-nums text-ink">{fmtCost(state.totals!.costUsd)}{cheapest.includes(flow.id) && <span className="ml-2 inline-flex rounded bg-good-soft px-1.5 py-0.5 font-sans text-[10px] font-semibold text-good">Lowest cost</span>}</td>
         {fields.map((field) => {
           const value = formatValue(field, state.analysis!.values[field.key]?.value);
           const group = groups[field.key].indexOf(value);
