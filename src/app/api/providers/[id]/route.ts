@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { ProviderProtocol } from "@/lib/provider-catalog";
 import { deleteProvider, getProvider, updateProvider, validateProvider } from "@/lib/providers";
+import { JSON_LIMITS, readJsonObject } from "@/lib/api-json";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,12 +10,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const { id } = await params;
   const existing = getProvider(id);
   if (!existing) return NextResponse.json({ error: "Provider not found." }, { status: 404 });
-  let patch: Record<string, unknown>;
-  try { patch = await request.json() as Record<string, unknown>; }
-  catch { return NextResponse.json({ error: "Request body must be JSON." }, { status: 400 }); }
+  const parsed = await readJsonObject(request, JSON_LIMITS.provider);
+  if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+  const patch = parsed.value;
   if (patch.clearKey !== undefined && typeof patch.clearKey !== "boolean") return NextResponse.json({ error: "clearKey must be boolean." }, { status: 400 });
   const input = { name: patch.name ?? existing.name, protocol: patch.protocol ?? existing.protocol, apiBase: patch.apiBase ?? existing.apiBase, apiKeyEnvVar: patch.apiKeyEnvVar ?? existing.apiKeyEnvVar, apiKey: patch.apiKey, clearKey: patch.clearKey };
-  const error = validateProvider(input);
+  const error = validateProvider({ ...input, apiKey: input.apiKey ?? (existing.hasCredential && !input.clearKey ? "already-configured" : undefined) });
   if (error) return NextResponse.json({ error }, { status: 400 });
   try {
     const provider = updateProvider(id, input as { name: string; protocol: ProviderProtocol; apiBase: string; apiKeyEnvVar: string; apiKey?: string; clearKey?: boolean });

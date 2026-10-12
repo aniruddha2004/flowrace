@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { deleteModel, getModel, updateModel, validateModelInput } from "@/lib/models";
+import { JSON_LIMITS, readJsonObject } from "@/lib/api-json";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,13 +10,9 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   const { id } = await params;
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Request body must be JSON." }, { status: 400 });
-  }
-  const b = body as Record<string, unknown>;
+  const parsed = await readJsonObject(request, JSON_LIMITS.model);
+  if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+  const b = parsed.value;
   const existing = getModel(id);
   if (!existing) return NextResponse.json({ error: "Model not found." }, { status: 404 });
   const check = validateModelInput({

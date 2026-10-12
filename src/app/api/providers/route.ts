@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { PROVIDER_PRESETS, type ProviderProtocol } from "@/lib/provider-catalog";
 import { createProvider, listProviders, validateProvider } from "@/lib/providers";
+import { JSON_LIMITS, readJsonObject } from "@/lib/api-json";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,9 +11,9 @@ export async function GET(): Promise<NextResponse> {
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
-  let input: Record<string, unknown>;
-  try { input = await request.json() as Record<string, unknown>; }
-  catch { return NextResponse.json({ error: "Request body must be JSON." }, { status: 400 }); }
+  const parsed = await readJsonObject(request, JSON_LIMITS.provider);
+  if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+  const input = parsed.value;
   const error = validateProvider(input);
   if (error || typeof input.id !== "string") return NextResponse.json({ error: error ?? "Provider ID is required." }, { status: 400 });
   try {
