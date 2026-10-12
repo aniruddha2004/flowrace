@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSystemPrompt, setSystemPrompt } from "@/lib/settings";
 import { getDefaultProject, taxonomyFromProject, updateProject } from "@/lib/projects";
+import { JSON_LIMITS, readJsonObject } from "@/lib/api-json";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,21 +21,15 @@ export async function GET(): Promise<NextResponse> {
 }
 
 export async function PATCH(request: Request): Promise<NextResponse> {
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Request body must be JSON." }, { status: 400 });
-  }
-  const { businessContext, systemPrompt } = body as {
-    businessContext?: unknown;
-    systemPrompt?: unknown;
-  };
+  const parsed = await readJsonObject(request, JSON_LIMITS.settings);
+  if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+  const { businessContext, systemPrompt } = parsed.value;
   if (businessContext !== undefined) {
     if (typeof businessContext !== "string") {
       return NextResponse.json({ error: "businessContext must be a string." }, { status: 400 });
     }
-    updateProject(getDefaultProject().id, { personaContext: businessContext });
+    const result = updateProject(getDefaultProject().id, { personaContext: businessContext });
+    if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
   }
   if (systemPrompt !== undefined) {
     if (typeof systemPrompt !== "string") {

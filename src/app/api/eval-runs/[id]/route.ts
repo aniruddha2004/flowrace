@@ -1,4 +1,5 @@
 import { deleteEvaluation, getEvaluation, setEvaluationStatus } from "@/lib/evaluations";
+import { JSON_LIMITS, readJsonObject } from "@/lib/api-json";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,9 +13,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const { id } = await params;
   const run = getEvaluation(id);
   if (!run) return Response.json({ error: "Evaluation run not found." }, { status: 404 });
-  let body: { cancel?: unknown };
-  try { body = await request.json() as { cancel?: unknown }; }
-  catch { return Response.json({ error: "Request body must be JSON." }, { status: 400 }); }
+  const parsed = await readJsonObject(request, JSON_LIMITS.evaluation);
+  if (!parsed.ok) return Response.json({ error: parsed.error }, { status: parsed.status });
+  const body = parsed.value;
   if (body.cancel !== true) return Response.json({ error: "Only cancel: true is supported." }, { status: 400 });
   if (run.status === "queued" || run.status === "running") setEvaluationStatus(id, "cancel_requested");
   return Response.json({ run: getEvaluation(id) });
