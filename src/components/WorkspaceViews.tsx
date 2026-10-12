@@ -61,12 +61,16 @@ export function ProjectOverview({ project, flows, sessions, onChanged, onViewFlo
   const [editingSchema, setEditingSchema] = useState(false);
   const [persona, setPersona] = useState(project.personaContext);
   const [saving, setSaving] = useState(false);
+  const [contextError, setContextError] = useState("");
   const latest = sessions.find((session) => session.projectId === project.id);
   const updatePersona = async () => {
-    setSaving(true);
+    setSaving(true); setContextError("");
     try {
       const res = await fetch(`/api/projects/${encodeURIComponent(project.id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ personaContext: persona }) });
-      if (res.ok) onChanged();
+      if (!res.ok) throw new Error(((await res.json()) as { error?: string }).error ?? "Could not save context.");
+      onChanged();
+    } catch (cause) {
+      setContextError(cause instanceof Error ? cause.message : "Could not save context.");
     } finally { setSaving(false); }
   };
   return <div className="ui-page">
@@ -81,7 +85,7 @@ export function ProjectOverview({ project, flows, sessions, onChanged, onViewFlo
       <section className="ui-surface overflow-hidden"><div className="flex items-center justify-between border-b border-line px-6 py-5"><div><h2 className="font-display text-base font-semibold text-ink">Output contract</h2><p className="mt-1 text-xs text-ink-soft">The fields every flow must produce</p></div><button className="ui-button" onClick={() => setEditingSchema((value) => !value)}>{editingSchema ? "Done editing" : "Edit schema"}</button></div>
         {editingSchema ? <div className="p-5 sm:p-6"><SchemaTab key={project.id} project={project} onChanged={onChanged} /></div> : <div className="divide-y divide-line">{project.outputSchema.map((field) => <div key={field.key} className="flex flex-wrap items-center justify-between gap-2 px-6 py-3.5"><div><span className="text-sm font-medium text-ink">{field.label}</span><code className="ml-2 font-mono text-xs text-muted">{field.key}</code></div><span className="rounded bg-track px-2 py-1 font-mono text-[11px] text-ink-soft">{field.type.replaceAll("_", " ")}</span></div>)}{project.outputSchema.length === 0 && <p className="px-6 py-7 text-sm text-muted">No output fields yet. Add fields to define the result your pipelines should produce.</p>}</div>}
       </section>
-      <div className="space-y-6"><section className="ui-surface p-6"><h2 className="font-display text-base font-semibold text-ink">Context for your models</h2><p className="mt-1 text-xs leading-relaxed text-ink-soft">Persona and policy context supplied to this project&apos;s pipelines.</p><textarea aria-label="Project context" className="ui-input mt-4 min-h-44 resize-y leading-relaxed" value={persona} onChange={(event) => setPersona(event.target.value)} placeholder="Describe your domain, audience, and operating guidelines…" /><button className="ui-button mt-3" disabled={saving || persona === project.personaContext} onClick={() => void updatePersona()}>{saving ? "Saving…" : "Save context"}</button></section>
+      <div className="space-y-6"><section className="ui-surface p-6"><h2 className="font-display text-base font-semibold text-ink">Context for your models</h2><p className="mt-1 text-xs leading-relaxed text-ink-soft">Persona and policy context supplied to this project&apos;s pipelines.</p><textarea aria-label="Project context" className="ui-input mt-4 min-h-44 resize-y leading-relaxed" value={persona} onChange={(event) => setPersona(event.target.value)} placeholder="Describe your domain, audience, and operating guidelines…" />{contextError && <p role="alert" className="mt-3 text-xs text-bad">{contextError}</p>}<button className="ui-button mt-3" disabled={saving || persona === project.personaContext} onClick={() => void updatePersona()}>{saving ? "Saving…" : "Save context"}</button></section>
         <section className="ui-surface p-6"><h2 className="font-display text-base font-semibold text-ink">Build the solution</h2><p className="mt-1 text-sm leading-relaxed text-ink-soft">Compose model steps into flows, then compare them on the same input.</p><button className="ui-button mt-4" onClick={onViewFlows}>View {flows.length} flows <span aria-hidden>→</span></button></section></div>
     </div>
   </div>;

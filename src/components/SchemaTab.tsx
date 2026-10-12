@@ -22,19 +22,25 @@ export function SchemaTab({
   project: Project;
   onChanged: () => void;
 }) {
+  const [error, setError] = useState("");
   const patchProject = async (patch: Record<string, unknown>) => {
-    await fetch(`/api/projects/${project.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch),
-    });
-    onChanged();
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(project.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (!response.ok) throw new Error(((await response.json()) as { error?: string }).error ?? "Could not save project schema.");
+      setError("");
+      onChanged();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save project schema."); }
   };
 
   const patchSchema = (schema: OutputField[]) => patchProject({ outputSchema: schema });
 
   return (
     <div className="space-y-6">
+      {error && <p role="alert" className="rounded-md border border-bad/30 bg-bad-soft p-3 text-sm text-bad">{error}</p>}
       <ProjectMeta project={project} onSave={patchProject} />
       <div>
         <div className="mb-3 flex items-center justify-between">
