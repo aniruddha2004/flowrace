@@ -26,6 +26,7 @@ export interface HttpMapping {
 const TEMPLATE_RE = /{{\s*([a-zA-Z][\w.]*)\s*}}/g;
 const VARIABLE_RE = /^(text|context|model|prior|questions|questionsByKey|decisionPrompt|maxTokens|question|key)(\.(key|instructions|type|options|optionsMap|range|scale|noulCriteria))?$/;
 const PATH_RE = /^(?:[a-zA-Z_][\w-]*|\d+)(?:\.(?:[a-zA-Z_][\w-]*|\d+))*$/;
+const RESERVED_HEADERS = new Set(["host", "content-length", "content-type", "transfer-encoding", "connection", "authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key", "x-goog-api-key"]);
 
 export function readPath(object: unknown, path: string): unknown {
   if (!path) return object;
@@ -56,8 +57,8 @@ export function validateMapping(raw: unknown): string[] {
   const errors: string[] = [];
   if (typeof mapping.path !== "string" || !mapping.path.startsWith("/") || mapping.path.startsWith("//") || mapping.path.includes("..") || mapping.path.includes("?")) errors.push("path must be an absolute path on the provider host (no query, // or ..).");
   if (!mapping.decision && !mapping.generate) errors.push("Provide a decision or generate mapping.");
-  if (mapping.auth && (!["bearer", "header", "none"].includes(mapping.auth.mode) || (mapping.auth.mode === "header" && !/^[A-Za-z][\w-]*$/.test(mapping.auth.header ?? "")))) errors.push("auth must use bearer, none or a named header.");
-  if (mapping.headers && (typeof mapping.headers !== "object" || Object.entries(mapping.headers).some(([key, value]) => !/^[A-Za-z][\w-]*$/.test(key) || typeof value !== "string" || /[\r\n]/.test(value)))) errors.push("headers must be single-line strings with valid header names.");
+  if (mapping.auth && (!["bearer", "header", "none"].includes(mapping.auth.mode) || (mapping.auth.mode === "header" && (!/^[A-Za-z][\w-]*$/.test(mapping.auth.header ?? "") || ["host", "content-length", "content-type", "transfer-encoding", "connection"].includes(mapping.auth.header?.toLowerCase() ?? ""))))) errors.push("auth must use bearer, none or a named credential header.");
+  if (mapping.headers && (typeof mapping.headers !== "object" || Object.entries(mapping.headers).some(([key, value]) => !/^[A-Za-z][\w-]*$/.test(key) || RESERVED_HEADERS.has(key.toLowerCase()) || typeof value !== "string" || /[\r\n]/.test(value)))) errors.push("headers must be safe single-line strings; transport and credential headers are reserved.");
   const path = (value: unknown, label: string, required = false, allowRoot = false) => {
     if ((required || value !== undefined) && (typeof value !== "string" || (required && !allowRoot && !value) || (value && !PATH_RE.test(value)))) errors.push(`${label} must be a dot-separated response path.`);
   };

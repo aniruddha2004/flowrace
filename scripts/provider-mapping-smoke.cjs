@@ -11,11 +11,14 @@ require.extensions[".ts"] = (mod, filename) => {
 
 const { validateModelInput, createModel, deleteModel } = require("../src/lib/models.ts");
 const { createProvider, providerKey, discoverModels, deleteProvider } = require("../src/lib/providers.ts");
+const { validateProvider } = require("../src/lib/providers.ts");
+const { modelEnvKey } = require("../src/lib/server-config.ts");
 const { runFlowDefinition } = require("../src/lib/flow-runner.ts");
 const { parseMapping } = require("../src/lib/http-mapping.ts");
 const { GLINER_MAPPING } = require("../src/lib/http-mapping.ts");
 const { mappingForProtocol } = require("../src/lib/http-mapping.ts");
 const { CustomHttpAdapter } = require("../src/lib/adapters/custom-http.ts");
+const { postJson, postJsonWithRetry } = require("../src/lib/dispatcher.ts");
 
 const mapping = {
   path: "/invoke", auth: { mode: "bearer" },
@@ -26,13 +29,37 @@ const mapping = {
 };
 
 (async () => {
+  assert.match(validateProvider({ name: "Unsafe", protocol: "custom_http", apiBase: "http://example.com", apiKeyEnvVar: "DUMMY_KEY" }), /HTTPS/);
+  assert.equal(validateProvider({ name: "Local", protocol: "custom_http", apiBase: "http://127.0.0.1:8100", apiKeyEnvVar: "" }), null);
+  const previousAnthropic = process.env.ANTHROPIC_API_KEY;
+  const previousTypesafe = process.env.TYPESAFE_API_KEY;
+  process.env.ANTHROPIC_API_KEY = "wrong-provider-secret";
+  delete process.env.TYPESAFE_API_KEY;
+  assert.equal(modelEnvKey("TYPESAFE_API_KEY", "jev"), undefined);
+  if (previousAnthropic === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = previousAnthropic;
+  if (previousTypesafe !== undefined) process.env.TYPESAFE_API_KEY = previousTypesafe;
   assert.equal(providerKey({ id: "constructor", apiKeyEnvVar: "" }), undefined);
   assert.throws(() => parseMapping(JSON.stringify({ path: "//outside", decision: mapping.decision })), /absolute path/);
   assert.throws(() => parseMapping(JSON.stringify({ ...mapping, generate: { body: { leak: "{{secret}}" }, textPath: "output.text" } })), /Unknown template variable/);
+  assert.throws(() => parseMapping(JSON.stringify({ ...mapping, headers: { "Content-Length": "1" } })), /reserved/);
+  assert.throws(() => parseMapping(JSON.stringify({ ...mapping, headers: { Authorization: "hardcoded-key" } })), /reserved/);
+  await assert.rejects(postJson("http://127.0.0.1:8100/classify", { "Content-Length": "1" }, {}), /cannot override/);
   const seen = [];
+  let rateLimitAttempts = 0;
   const server = http.createServer(async (request, response) => {
     if (request.method === "GET" && request.url === "/models") {
       response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ data: [{ id: "future-model", name: "Future model" }] })); return;
+    }
+    if (request.url === "/oversized") {
+      response.writeHead(200, { "Content-Type": "application/json", "Content-Length": String(9 * 1024 * 1024) });
+      response.end("{}");
+      return;
+    }
+    if (request.url === "/rate-limit") {
+      rateLimitAttempts++;
+      response.writeHead(rateLimitAttempts === 1 ? 429 : 200, { "Content-Type": "application/json", "Retry-After": "0" });
+      response.end("{}");
+      return;
     }
     const chunks = [];
     for await (const chunk of request) chunks.push(chunk);
@@ -57,9 +84,11 @@ const mapping = {
   const modelId = `fixture_model_${process.pid}`;
   try {
     const provider = createProvider({ id, name: "Fixture API", protocol: "custom_http", apiBase: `http://127.0.0.1:${server.address().port}`, apiKeyEnvVar: "", apiKey: "fixture-private-key" });
+    await assert.rejects(postJson(`${provider.apiBase}/oversized`, {}, {}), /allowed size/);
     assert.equal(provider.hasCredential, true);
     assert.equal(Object.hasOwn(provider, "apiKey"), false);
     assert.equal(providerKey(provider), "fixture-private-key");
+    assert.equal(fs.statSync(require("node:path").join(process.cwd(), "data/provider-credentials.json")).mode & 0o777, 0o600);
     const discovered = await discoverModels(provider);
     assert.equal(discovered[0].id, "future-model");
     const input = { id: modelId, name: "Fixture model", adapterType: "custom_http", providerId: id,
@@ -84,6 +113,8 @@ const mapping = {
     assert.ok(seen.every((request) => request.path === "/invoke" && request.auth === "Bearer fixture-private-key"));
     assert.equal(seen[0].body.questions.fit.type, "choice");
     assert.equal(seen[0].body.questions.fit.criteria.strong, "Matches");
+    assert.equal((await postJsonWithRetry(`${provider.apiBase}/rate-limit`, {}, {})).status, 200);
+    assert.equal(rateLimitAttempts, 2);
     console.log("Provider discovery, server-only credential, JSON mapping and two-step custom HTTP flow passed.");
     for (const [protocol, modelName, expectedPath, headerName] of [
       ["anthropic_messages", "claude-fixture", "/messages", "x-api-key"],

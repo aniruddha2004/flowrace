@@ -1,5 +1,6 @@
 import https from "node:https";
 import http from "node:http";
+import { MAX_PROVIDER_RESPONSE_BYTES } from "./http-limits";
 
 // Shared HTTP transport for all server-side API calls. We deliberately avoid
 // global fetch: its default undici connect timeout (10s) is fatal against
@@ -10,11 +11,12 @@ import http from "node:http";
 export interface JsonHttpResponse {
   status: number;
   body: string;
+  retryAfterMs?: number;
 }
 
 // The LLM gateway occasionally resets sockets mid-transfer (observed
-// ECONNRESET). Retry transient network faults; HTTP error statuses are still
-// surfaced to callers unchanged.
+// ECONNRESET). Retry transient network faults and bounded 429 backoffs;
+// adapters still receive the final HTTP status unchanged.
 const TRANSIENT_CODES = new Set([
   "ECONNRESET",
   "ECONNREFUSED",
@@ -33,7 +35,12 @@ export async function postJsonWithRetry(
   let lastErr: unknown;
   for (let i = 0; i < attempts; i++) {
     try {
-      return await postJson(url, headers, payload, timeoutMs);
+      const response = await postJson(url, headers, payload, timeoutMs);
+      if (response.status === 429 && i < attempts - 1) {
+        await new Promise((r) => setTimeout(r, response.retryAfterMs ?? Math.min(3000 * 2 ** i, 10_000)));
+        continue;
+      }
+      return response;
     } catch (err) {
       lastErr = err;
       const code = (err as NodeJS.ErrnoException | null | undefined)?.code;
@@ -57,6 +64,9 @@ export function postJson(
     const data = JSON.stringify(payload);
     const target = new URL(url);
     if (target.protocol !== "https:" && target.protocol !== "http:") throw new Error("Only HTTP(S) endpoints are supported.");
+    if (Object.keys(headers).some((name) => ["host", "content-length", "content-type", "transfer-encoding", "connection"].includes(name.toLowerCase()))) {
+      throw new Error("Provider headers cannot override the JSON transport headers.");
+    }
     const transport = target.protocol === "http:" ? http : https;
     const req = transport.request(
       {
@@ -72,12 +82,26 @@ export function postJson(
       },
       (res) => {
         const chunks: Buffer[] = [];
-        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        let size = 0;
+        res.on("error", (error) => { clearTimeout(timer); reject(error); });
+        const tooLarge = () => {
+          clearTimeout(timer);
+          res.destroy();
+          reject(new Error("Provider response exceeds the allowed size."));
+        };
+        const length = Number(res.headers["content-length"]);
+        if (Number.isFinite(length) && length > MAX_PROVIDER_RESPONSE_BYTES) { tooLarge(); return; }
+        res.on("data", (chunk: Buffer) => {
+          size += chunk.length;
+          if (size > MAX_PROVIDER_RESPONSE_BYTES) { tooLarge(); return; }
+          chunks.push(chunk);
+        });
         res.on("end", () => {
           clearTimeout(timer);
           resolve({
             status: res.statusCode ?? 0,
             body: Buffer.concat(chunks).toString("utf8"),
+            retryAfterMs: retryAfterMs(res.headers["retry-after"]),
           });
         });
       },
@@ -92,4 +116,12 @@ export function postJson(
     req.write(data);
     req.end();
   });
+}
+
+function retryAfterMs(value: string | string[] | undefined): number | undefined {
+  if (!value || Array.isArray(value)) return undefined;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1000, 30_000);
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? Math.min(Math.max(0, date - Date.now()), 30_000) : undefined;
 }
