@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { deleteTaxonomyOption, getDefaultProject, updateTaxonomyOption } from "@/lib/projects";
+import { JSON_LIMITS, readJsonObject } from "@/lib/api-json";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,13 +10,9 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   const { id } = await params;
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Request body must be JSON." }, { status: 400 });
-  }
-  const patch = body as { label?: unknown; description?: unknown; sortOrder?: unknown };
+  const parsed = await readJsonObject(request, JSON_LIMITS.settings);
+  if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+  const patch = parsed.value;
   const result = updateTaxonomyOption(getDefaultProject().id, id, {
     label: typeof patch.label === "string" ? patch.label : undefined,
     description: typeof patch.description === "string" ? patch.description : undefined,
