@@ -104,13 +104,13 @@ export class SystemOneAdapter implements ModelAdapter {
       );
     }
     if (res.status < 200 || res.status >= 300) {
-      throw new JevError(`Jev request failed: HTTP ${res.status} ${res.body.slice(0, 300)}`, res.status);
+      throw new JevError(`Jev request failed: HTTP ${res.status}.`, res.status);
     }
     let json: JevResponse;
     try {
       json = JSON.parse(res.body) as JevResponse;
     } catch {
-      throw new JevError(`Jev response was not JSON: HTTP ${res.status} ${res.body.slice(0, 300)}`, res.status);
+      throw new JevError(`Jev response was not JSON: HTTP ${res.status}.`, res.status);
     }
 
     const answers: DecisionOutput["answers"] = {};

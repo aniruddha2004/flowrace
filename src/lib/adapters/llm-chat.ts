@@ -195,7 +195,7 @@ export class LlmChatAdapter implements ModelAdapter {
     );
     if (res.status < 200 || res.status >= 300) {
       throw new LLMError(
-        `LLM request failed: HTTP ${res.status} ${res.body.slice(0, 300)}`,
+        `LLM request failed: HTTP ${res.status}.`,
         res.status,
       );
     }
@@ -204,12 +204,12 @@ export class LlmChatAdapter implements ModelAdapter {
       json = JSON.parse(res.body) as ChatCompletionResponse;
     } catch {
       throw new LLMError(
-        `LLM response was not JSON: HTTP ${res.status} ${res.body.slice(0, 300)}`,
+        `LLM response was not JSON: HTTP ${res.status}.`,
         res.status,
       );
     }
     if (json.error?.message) {
-      throw new LLMError(`LLM API error: ${json.error.message}`);
+      throw new LLMError("LLM API returned an error.");
     }
     const choice = json.choices?.[0];
     const toolCall = choice?.message?.tool_calls?.[0];
