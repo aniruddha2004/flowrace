@@ -1,5 +1,6 @@
 import { getDb } from "./db";
 import { seedModels } from "./models";
+import { projectIssues } from "./project-validation";
 
 // ---------------------------------------------------------------------------
 // Projects — a project owns its input kind, output schema (the fields a flow
@@ -123,6 +124,8 @@ export function updateProject(
 ): { ok: true } | { ok: false; error: string } {
   const existing = getProject(id);
   if (!existing) return { ok: false, error: "Project not found." };
+  const issues = projectIssues({ ...existing, ...patch });
+  if (issues.length) return { ok: false, error: issues.join(" ") };
   getDb()
     .prepare(
       `UPDATE projects
@@ -165,6 +168,8 @@ export function createProject(input: {
   inputLabel?: string;
   crossCuttingClues?: Clue[];
 }): { ok: true; project: Project } | { ok: false; error: string } {
+  const issues = projectIssues(input);
+  if (issues.length) return { ok: false, error: issues.join(" ") };
   try {
     getDb()
       .prepare(

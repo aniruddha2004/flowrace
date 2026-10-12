@@ -9,6 +9,7 @@ export function validateFlow(steps: unknown, schema: OutputSchema, models: Model
   const errors: string[] = [];
   const owners = new Map<string, number>();
   const fields = new Map(schema.map((field) => [field.key, field]));
+  for (const field of schema) if (field.type === "enum" && !field.options?.length) errors.push(`Project field "${field.label}" needs an enum option before this flow can run.`);
   const ids = new Set<string>();
   for (const [i, candidate] of steps.entries()) {
     if (!candidate || typeof candidate !== "object") { errors.push(`Step ${i + 1} is invalid.`); continue; }
