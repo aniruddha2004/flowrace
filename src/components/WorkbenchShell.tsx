@@ -12,19 +12,12 @@ export function WorkbenchShell({ children, projects, project, view, onProject, o
 }) {
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [touchOpen, setTouchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const switcherRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      try {
-        const stored = localStorage.getItem("flowrace-sidebar-collapsed");
-        setCollapsed(stored === null ? window.innerWidth < 1100 : stored === "true");
-      } catch { setCollapsed(window.innerWidth < 1100); }
-    }, 0);
-    return () => clearTimeout(timer);
-  }, []);
   useEffect(() => {
     if (!switcherOpen && !sidebarOpen) return;
     const close = (event: MouseEvent) => { if (!switcherRef.current?.contains(event.target as Node)) setSwitcherOpen(false); };
@@ -35,16 +28,17 @@ export function WorkbenchShell({ children, projects, project, view, onProject, o
 
   const toggleSidebar = () => {
     if (window.matchMedia("(max-width: 767px)").matches) { setSidebarOpen((open) => !open); setSwitcherOpen(false); }
-    else setCollapsed((previous) => { try { localStorage.setItem("flowrace-sidebar-collapsed", String(!previous)); } catch { /* Sidebar still toggles when storage is unavailable. */ } return !previous; });
+    else setTouchOpen((open) => !open);
   };
-  const navigate = (target: WorkbenchView) => { setSidebarOpen(false); onView(target); };
+  const navigate = (target: WorkbenchView) => { setSidebarOpen(false); setTouchOpen(false); onView(target); };
+  const expanded = hovered || focused || touchOpen;
   const matches = projects.filter((item) => `${item.name} ${item.id}`.toLowerCase().includes(query.toLowerCase()));
   const isHome = view === "home";
 
   return <div className="min-h-dvh bg-paper">
-    <header className="sticky top-0 z-50 flex h-14 items-center justify-between border-b border-line bg-panel/95 px-3 backdrop-blur-md sm:px-5">
+    <header className="sticky top-0 z-50 flex h-14 items-center justify-between bg-nav px-3 sm:px-5">
       <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-        <button onClick={toggleSidebar} aria-label={sidebarOpen ? "Close sidebar" : "Toggle sidebar"} aria-expanded={sidebarOpen} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-soft transition-colors hover:bg-track hover:text-ink">
+        <button onClick={toggleSidebar} aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"} aria-expanded={sidebarOpen || touchOpen} className="touch-sidebar-toggle h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-soft transition-colors hover:bg-nav-hover hover:text-ink">
           <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
         </button>
         <button className="flex shrink-0 items-center gap-2" onClick={() => navigate("home")} aria-label="Flow Race projects">
@@ -53,7 +47,7 @@ export function WorkbenchShell({ children, projects, project, view, onProject, o
         </button>
       </div>
       <div className="relative min-w-0 max-w-[min(240px,56vw)]" ref={switcherRef}>
-        <button aria-label="Switch project" aria-expanded={switcherOpen} onClick={() => { setSwitcherOpen((open) => !open); setQuery(""); setSidebarOpen(false); }} className="flex h-9 max-w-full items-center gap-2 rounded-md border border-transparent px-2 text-sm font-medium text-ink transition-colors hover:border-line hover:bg-track sm:px-3">
+        <button aria-label="Switch project" aria-expanded={switcherOpen} onClick={() => { setSwitcherOpen((open) => !open); setQuery(""); setSidebarOpen(false); }} className="flex h-9 max-w-full items-center gap-2 rounded-md border border-transparent px-2 text-sm font-medium text-ink transition-colors hover:border-nav-line hover:bg-nav-hover sm:px-3">
           <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[4px] bg-brand-soft font-display text-[11px] font-bold leading-none text-brand">{isHome ? "⌂" : project?.name?.charAt(0).toUpperCase() ?? "⌂"}</span>
           <span className="min-w-0 truncate leading-none">{isHome ? "All projects" : project?.name ?? "All projects"}</span>
           <svg className="h-4 w-4 shrink-0 text-muted" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m5 7 5 5 5-5" /></svg>
@@ -66,9 +60,9 @@ export function WorkbenchShell({ children, projects, project, view, onProject, o
       </div>
     </header>
     <div className="flex min-h-[calc(100dvh-3.5rem)] items-stretch">
-      <aside className={`sticky top-14 hidden h-[calc(100dvh-3.5rem)] shrink-0 overflow-y-auto border-r border-line bg-panel transition-[width] duration-200 md:block ${collapsed ? "w-[60px]" : "w-[224px]"}`}><WorkbenchSidebar project={project} view={view} collapsed={collapsed} onNavigate={navigate} /></aside>
+      <aside onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)} onFocusCapture={() => setFocused(true)} onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false); }} className="sticky top-14 z-30 hidden h-[calc(100dvh-3.5rem)] w-[60px] shrink-0 md:block"><div className={`h-full overflow-y-auto border-r border-nav-line bg-nav transition-[width,box-shadow] duration-200 ${expanded ? "w-[224px] shadow-elevated" : "w-[60px]"}`}><WorkbenchSidebar project={project} view={view} collapsed={!expanded} onNavigate={navigate} /></div></aside>
       <main key={`${project?.id ?? "all"}:${view}`} className="view-enter min-w-0 flex-1">{children}</main>
     </div>
-    {sidebarOpen && <div className="fixed inset-x-0 bottom-0 top-14 z-40 md:hidden"><button aria-label="Close navigation" className="absolute inset-0 bg-ink/45" onClick={() => setSidebarOpen(false)} /><aside className="drawer-enter relative h-full w-[min(280px,calc(100vw-2.5rem))] overflow-y-auto border-r border-line bg-panel shadow-elevated"><WorkbenchSidebar project={project} view={view} collapsed={false} onNavigate={navigate} /></aside></div>}
+    {sidebarOpen && <div className="fixed inset-x-0 bottom-0 top-14 z-40 md:hidden"><button aria-label="Close navigation" className="absolute inset-0 bg-ink/45" onClick={() => setSidebarOpen(false)} /><aside className="drawer-enter relative h-full w-[min(280px,calc(100vw-2.5rem))] overflow-y-auto border-r border-nav-line bg-nav shadow-elevated"><WorkbenchSidebar project={project} view={view} collapsed={false} onNavigate={navigate} /></aside></div>}
   </div>;
 }
