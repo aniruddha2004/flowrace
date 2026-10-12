@@ -5,17 +5,18 @@ import { listModels } from "@/lib/models";
 import { getDefaultProject, getProject } from "@/lib/projects";
 import { saveSession } from "@/lib/sessions";
 import { getSystemPrompt } from "@/lib/settings";
+import { JSON_LIMITS, readJsonObject } from "@/lib/api-json";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request): Promise<Response> {
-  let body: Record<string, unknown>;
-  try { body = await request.json() as Record<string, unknown>; }
-  catch { return Response.json({ error: "Request body must be JSON." }, { status: 400 }); }
+  const parsed = await readJsonObject(request, JSON_LIMITS.race);
+  if (!parsed.ok) return Response.json({ error: parsed.error }, { status: parsed.status });
+  const body = parsed.value;
   const text = typeof body.text === "string" ? body.text.trim() : "";
   if (!text) return Response.json({ error: "Field `text` is required." }, { status: 400 });
-  if (text.length > 20_000) return Response.json({ error: "Ticket text is too long (max 20,000 chars)." }, { status: 413 });
+  if (text.length > 20_000) return Response.json({ error: "Input text is too long (max 20,000 chars)." }, { status: 413 });
   const project = typeof body.projectId === "string" ? getProject(body.projectId) : getDefaultProject();
   if (!project) return Response.json({ error: "Project not found." }, { status: 404 });
 
