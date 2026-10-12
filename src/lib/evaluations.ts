@@ -5,6 +5,7 @@ import type { Flow } from "./flows";
 import type { FlowResult } from "./flow-runner";
 import { modelCost, type ModelRow } from "./models";
 import type { OutputSchema, Project } from "./projects";
+import { nonnegativeEnvNumber } from "./server-config";
 
 export type EvaluationStatus = "queued" | "running" | "cancel_requested" | "cancelled" | "completed" | "failed";
 export interface EvaluationOptions { repeats: number; concurrency: number }
@@ -71,7 +72,6 @@ export function estimateEvaluation(project: Project, flows: Flow[], models: Mode
     calls += repeats * count;
     costUsd += repeats * count * modelCost(model, inputTokens, outputTokens);
   }
-  const configured = Number(process.env.EVAL_CONFIRM_THRESHOLD_USD ?? "2");
-  const thresholdUsd = Number.isFinite(configured) && configured >= 0 ? configured : 2;
+  const thresholdUsd = nonnegativeEnvNumber("EVAL_CONFIRM_THRESHOLD_USD", 2, 100_000);
   return { calls, costUsd, thresholdUsd, requiresConfirmation: costUsd > thresholdUsd };
 }

@@ -27,7 +27,9 @@ export function prepareEvaluation(body: Record<string, unknown>) {
   if (!Number.isInteger(repeats) || Number(repeats) < 1 || Number(repeats) > 5) return { error: "Repeats must be an integer from 1 to 5.", status: 400 } as const;
   if (!Number.isInteger(concurrency) || Number(concurrency) < 1 || Number(concurrency) > 5) return { error: "Concurrency must be an integer from 1 to 5.", status: 400 } as const;
   const options: EvaluationOptions = { repeats: Number(repeats), concurrency: Number(concurrency) };
-  const estimate = estimateEvaluation(project, selected, models, dataset.items, options.repeats);
+  let estimate;
+  try { estimate = estimateEvaluation(project, selected, models, dataset.items, options.repeats); }
+  catch (error) { return { error: error instanceof Error ? error.message : "Invalid evaluation configuration.", status: 503 } as const; }
   if (estimate.calls > 3000) return { error: "This run exceeds 3,000 estimated model calls. Reduce flows, repeats, or dataset size.", status: 400 } as const;
   return { project, dataset, flows: selected, options, estimate } as const;
 }

@@ -31,6 +31,7 @@ const { getDefaultProject, createProject, deleteProject } = require("../src/lib/
 const { createFlow } = require("../src/lib/flows.ts");
 const { createDataset, deleteDataset } = require("../src/lib/datasets.ts");
 const { estimateEvaluation, getEvaluation, setEvaluationStatus } = require("../src/lib/evaluations.ts");
+const { nonnegativeEnvNumber } = require("../src/lib/server-config.ts");
 const { startEvaluation } = require("../src/lib/evaluation-runner.ts");
 const { computeEvaluationReport, evaluationCsv, itemHasDisagreement, itemHasWrongAnswer } = require("../src/lib/evaluation-report.ts");
 
@@ -41,6 +42,10 @@ const mapping = { path: "/run", auth: { mode: "none" },
 };
 
 (async () => {
+  const previousThreshold = process.env.EVAL_CONFIRM_THRESHOLD_USD;
+  process.env.EVAL_CONFIRM_THRESHOLD_USD = "not-a-number";
+  assert.throws(() => nonnegativeEnvNumber("EVAL_CONFIRM_THRESHOLD_USD", 2, 100_000), /must be a finite number/);
+  if (previousThreshold === undefined) delete process.env.EVAL_CONFIRM_THRESHOLD_USD; else process.env.EVAL_CONFIRM_THRESHOLD_USD = previousThreshold;
   let activeRequests = 0, peakRequests = 0;
   const server = http.createServer(async (request, response) => {
     activeRequests++;
