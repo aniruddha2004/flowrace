@@ -45,7 +45,7 @@ function ModelEditor({ model, suggestion, providers, onCancel, onSaved }: {
     if (next && next.protocol !== "openai_chat") { setAdapterType("custom_http"); setMapping(JSON.stringify(mappingForProtocol(next.protocol) ?? JSON.parse(starterMapping), null, 2)); }
     else { setAdapterType("llm_chat"); setMapping(""); }
   };
-  const valid = (model || /^[a-z][a-z0-9_-]*$/.test(id)) && name.trim() && modelId.trim() && providerId && !Number.isNaN(Number(inputPerM)) && !Number.isNaN(Number(outputPerM));
+  const valid = Boolean((model || /^[a-z][a-z0-9_-]*$/.test(id)) && name.trim() && modelId.trim() && providerId && inputPerM.trim() && outputPerM.trim() && Number.isFinite(Number(inputPerM)) && Number.isFinite(Number(outputPerM)) && Number(inputPerM) >= 0 && Number(outputPerM) >= 0);
   const submit = async () => {
     if (!valid || !provider) return;
     setSaving(true); setError("");

@@ -2,6 +2,7 @@ import { getDb } from "./db";
 import { usd, type TokenRates } from "./pricing";
 import { parseMapping } from "./http-mapping";
 import { getProvider } from "./providers";
+import { endpointError, seededLlmBaseUrl } from "./server-config";
 
 // ---------------------------------------------------------------------------
 // Model Registry — every LLM / System One endpoint the platform can call is a
@@ -90,11 +91,11 @@ export function validateModelInput(raw: {
   apiConfig?: unknown;
   pricing?: unknown;
 }): { ok: true } | { ok: false; error: string } {
-  if (raw.id !== undefined && (typeof raw.id !== "string" || !ID_RE.test(raw.id))) {
-    return { ok: false, error: "id must be lowercase letters/digits/dash/underscore starting with a letter." };
+  if (raw.id !== undefined && (typeof raw.id !== "string" || !ID_RE.test(raw.id) || raw.id.length > 100)) {
+    return { ok: false, error: "id must be 1–100 lowercase letters/digits/dash/underscore starting with a letter." };
   }
-  if (typeof raw.name !== "string" || !raw.name.trim()) {
-    return { ok: false, error: "name is required." };
+  if (typeof raw.name !== "string" || !raw.name.trim() || raw.name.length > 120) {
+    return { ok: false, error: "name must be 1–120 characters." };
   }
   if (!ADAPTER_TYPES.includes(raw.adapterType as AdapterType)) {
     return { ok: false, error: `adapterType must be one of ${ADAPTER_TYPES.join(", ")}.` };
@@ -103,12 +104,19 @@ export function validateModelInput(raw: {
   const provider = typeof raw.providerId === "string" ? getProvider(raw.providerId) : null;
   if (provider && raw.adapterType === "llm_chat" && provider.protocol !== "openai_chat") return { ok: false, error: "Non-OpenAI providers need a custom HTTP mapping." };
   const cfg = (raw.apiConfig ?? {}) as Partial<ModelApiConfig>;
-  if (!provider && (typeof cfg?.apiBase !== "string" || !cfg.apiBase.trim())) {
+  if (!provider && (typeof cfg.apiBase !== "string" || !cfg.apiBase.trim())) {
     return { ok: false, error: "apiConfig.apiBase is required." };
   }
-  if (!provider && (typeof cfg?.apiKeyEnvVar !== "string" || !cfg.apiKeyEnvVar.trim())) {
+  if (cfg.apiBase !== undefined) {
+    if (typeof cfg.apiBase !== "string" || cfg.apiBase.length > 2048) return { ok: false, error: "apiConfig.apiBase must be at most 2,048 characters." };
+    const error = endpointError(cfg.apiBase, Boolean(cfg.apiKeyEnvVar));
+    if (error) return { ok: false, error: `apiConfig.apiBase: ${error}` };
+  }
+  if (!provider && (typeof cfg.apiKeyEnvVar !== "string" || !cfg.apiKeyEnvVar.trim())) {
     return { ok: false, error: "apiConfig.apiKeyEnvVar is required." };
   }
+  if (cfg.apiKeyEnvVar !== undefined && (typeof cfg.apiKeyEnvVar !== "string" || cfg.apiKeyEnvVar.length > 128 || (cfg.apiKeyEnvVar && !/^[A-Z_][A-Z0-9_]*$/.test(cfg.apiKeyEnvVar)))) return { ok: false, error: "apiConfig.apiKeyEnvVar must be a short uppercase environment variable name." };
+  if (cfg.modelId !== undefined && (typeof cfg.modelId !== "string" || cfg.modelId.length > 200)) return { ok: false, error: "apiConfig.modelId must be at most 200 characters." };
   if (raw.adapterType !== "custom_http" && (typeof cfg.modelId !== "string" || !cfg.modelId.trim())) {
     return { ok: false, error: "apiConfig.modelId is required for llm_chat and system_one." };
   }
@@ -118,9 +126,10 @@ export function validateModelInput(raw: {
     try { parseMapping(cfg.requestTemplate); } catch (error) { return { ok: false, error: error instanceof Error ? error.message : "Invalid JSON mapping." }; }
   }
   const p = raw.pricing as Partial<ModelPricing> | undefined;
-  if (typeof p?.inputPerM !== "number" || typeof p?.outputPerM !== "number") {
-    return { ok: false, error: "pricing.inputPerM and pricing.outputPerM must be numbers." };
+  if (typeof p?.inputPerM !== "number" || typeof p?.outputPerM !== "number" || !Number.isFinite(p.inputPerM) || !Number.isFinite(p.outputPerM) || p.inputPerM < 0 || p.outputPerM < 0 || p.inputPerM > 100_000 || p.outputPerM > 100_000) {
+    return { ok: false, error: "pricing rates must be finite values between 0 and 100,000 USD per million tokens." };
   }
+  if (typeof p.outputFree !== "boolean") return { ok: false, error: "pricing.outputFree must be true or false." };
   return { ok: true };
 }
 
@@ -202,7 +211,7 @@ export function seedModels(): void {
     "kimi-k3 (chat + tools)",
     "llm_chat",
     JSON.stringify({
-      apiBase: process.env.LLM_BASE_URL ?? "https://grid.ai.juspay.net",
+       apiBase: seededLlmBaseUrl(),
       apiKeyEnvVar: "LLM_API_KEY",
       modelId: process.env.LLM_MODEL ?? "kimi-k3",
     }),
