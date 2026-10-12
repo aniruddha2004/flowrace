@@ -6,6 +6,9 @@
   --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
   --color-paper: var(--ui-paper);
   --color-panel: var(--ui-panel);
+  --color-nav: var(--ui-nav);
+  --color-nav-hover: var(--ui-nav-hover);
+  --color-nav-line: var(--ui-nav-line);
   --color-ink: var(--ui-ink);
   --color-ink-soft: var(--ui-ink-soft);
   --color-line: var(--ui-line);
@@ -33,6 +36,9 @@
 :root {
   --ui-paper: #f5f7fa;
   --ui-panel: #ffffff;
+  --ui-nav: #e8eef7;
+  --ui-nav-hover: #dce6f4;
+  --ui-nav-line: #d2dce9;
   --ui-ink: #172034;
   --ui-ink-soft: #526078;
   --ui-line: #dce3ed;
@@ -59,6 +65,9 @@
 html.dark {
   --ui-paper: #101722;
   --ui-panel: #182332;
+  --ui-nav: #1a2b40;
+  --ui-nav-hover: #273c57;
+  --ui-nav-line: #304760;
   --ui-ink: #e8edf7;
   --ui-ink-soft: #b2bfd2;
   --ui-line: #304055;
@@ -113,4 +122,7 @@ body { background: var(--ui-paper); color: var(--ui-ink); }
 .drawer-enter { animation: drawer-in .22s cubic-bezier(.2,.8,.2,1) both; }
 .skeleton-shimmer { background: linear-gradient(100deg,var(--ui-track) 25%,var(--ui-brand-soft) 50%,var(--ui-track) 75%); background-size: 220% 100%; animation: scan 1.8s ease-in-out infinite; }
 .step-running { box-shadow: 0 0 0 3px var(--ui-brand-soft); }
+/* On touch devices the rail has no hover state, so its header toggle stays visible. */
+.touch-sidebar-toggle { display: none; }
+@media (max-width: 767px), (hover: none) { .touch-sidebar-toggle { display: inline-flex; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important; } }
