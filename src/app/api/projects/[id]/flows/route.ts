@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createFlow, listFlows, type FlowStep } from "@/lib/flows";
 import { getProject } from "@/lib/projects";
+import { JSON_LIMITS, readJsonObject } from "@/lib/api-json";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,9 +16,9 @@ export async function GET(_request: Request, { params }: Context): Promise<NextR
 
 export async function POST(request: Request, { params }: Context): Promise<NextResponse> {
   const { id } = await params;
-  let body: Record<string, unknown>;
-  try { body = await request.json() as Record<string, unknown>; }
-  catch { return NextResponse.json({ error: "Request body must be JSON." }, { status: 400 }); }
+  const parsed = await readJsonObject(request, JSON_LIMITS.project);
+  if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+  const body = parsed.value;
   const result = createFlow({ projectId: id, name: body.name as string, steps: body.steps as FlowStep[] });
   if (!result.ok) return NextResponse.json({ error: result.errors.join(" "), errors: result.errors }, { status: getProject(id) ? 400 : 404 });
   return NextResponse.json({ flow: result.flow }, { status: 201 });
