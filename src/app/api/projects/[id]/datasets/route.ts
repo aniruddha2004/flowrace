@@ -1,6 +1,7 @@
 import { getProject } from "@/lib/projects";
 import { createDataset, listDatasets } from "@/lib/datasets";
 import { validateDatasetItems, type DatasetItem } from "@/lib/dataset-format";
+import { JSON_LIMITS, readJsonObject } from "@/lib/api-json";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,9 +16,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { id } = await params;
   const project = getProject(id);
   if (!project) return Response.json({ error: "Project not found." }, { status: 404 });
-  let body: Record<string, unknown>;
-  try { body = await request.json() as Record<string, unknown>; }
-  catch { return Response.json({ error: "Request body must be JSON." }, { status: 400 }); }
+  const parsed = await readJsonObject(request, JSON_LIMITS.dataset);
+  if (!parsed.ok) return Response.json({ error: parsed.error }, { status: parsed.status });
+  const body = parsed.value;
   if (typeof body.name !== "string" || !body.name.trim() || body.name.length > 100) return Response.json({ error: "Dataset name must be 1–100 characters." }, { status: 400 });
   const issues = validateDatasetItems(body.items, project.outputSchema);
   if (issues.length) return Response.json({ error: "Dataset items need corrections.", issues }, { status: 400 });

@@ -1,6 +1,7 @@
 import { deleteDataset, getDataset, updateDataset } from "@/lib/datasets";
 import { validateDatasetItems, type DatasetItem } from "@/lib/dataset-format";
 import { getProject } from "@/lib/projects";
+import { JSON_LIMITS, readJsonObject } from "@/lib/api-json";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,9 +15,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const { id } = await params;
   const previous = getDataset(id);
   if (!previous) return Response.json({ error: "Dataset not found." }, { status: 404 });
-  let patch: Record<string, unknown>;
-  try { patch = await request.json() as Record<string, unknown>; }
-  catch { return Response.json({ error: "Request body must be JSON." }, { status: 400 }); }
+  const parsed = await readJsonObject(request, JSON_LIMITS.dataset);
+  if (!parsed.ok) return Response.json({ error: parsed.error }, { status: parsed.status });
+  const patch = parsed.value;
   const name = patch.name ?? previous.name;
   const items = patch.items ?? previous.items;
   if (typeof name !== "string" || !name.trim() || name.length > 100) return Response.json({ error: "Dataset name must be 1–100 characters." }, { status: 400 });

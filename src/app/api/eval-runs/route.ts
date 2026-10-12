@@ -2,14 +2,15 @@ import { prepareEvaluation } from "@/lib/evaluation-input";
 import { startEvaluation } from "@/lib/evaluation-runner";
 import type { EvaluationResult } from "@/lib/evaluations";
 import { getSystemPrompt } from "@/lib/settings";
+import { JSON_LIMITS, readJsonObject } from "@/lib/api-json";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request): Promise<Response> {
-  let body: Record<string, unknown>;
-  try { body = await request.json() as Record<string, unknown>; }
-  catch { return Response.json({ error: "Request body must be JSON." }, { status: 400 }); }
+  const parsed = await readJsonObject(request, JSON_LIMITS.evaluation);
+  if (!parsed.ok) return Response.json({ error: parsed.error }, { status: parsed.status });
+  const body = parsed.value;
   const prepared = prepareEvaluation(body);
   if ("error" in prepared) return Response.json({ error: prepared.error, issues: "issues" in prepared ? prepared.issues : undefined }, { status: prepared.status });
   const { project, dataset, flows, options, estimate } = prepared;
