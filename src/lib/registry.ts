@@ -4,21 +4,18 @@ import { CustomHttpAdapter } from "./adapters/custom-http";
 import type { ModelAdapter } from "./adapters/types";
 import { getModel } from "./models";
 import { getProvider, providerKey } from "./providers";
+import { modelEnvKey } from "./server-config";
 
 // ---------------------------------------------------------------------------
 // Registry — resolves a models-table row + its API key into a live adapter.
 // ---------------------------------------------------------------------------
-
-function resolveApiKey(envVar: string, modelId: string): string | undefined {
-  return process.env[envVar] ?? (modelId === "kimi-k3" || modelId === "jev" ? process.env.JUSPAY_API_KEY ?? process.env.ANTHROPIC_API_KEY : undefined);
-}
 
 export function getAdapter(modelId: string): ModelAdapter {
   const model = getModel(modelId);
   if (!model) throw new Error(`Model "${modelId}" is not in the registry.`);
   const provider = model.providerId ? getProvider(model.providerId) : null;
   if (model.providerId && !provider) throw new Error(`Provider "${model.providerId}" no longer exists.`);
-  const key = provider ? providerKey(provider) ?? resolveApiKey(provider.apiKeyEnvVar, model.id) : resolveApiKey(model.apiConfig.apiKeyEnvVar, model.id);
+  const key = provider ? providerKey(provider) ?? modelEnvKey(provider.apiKeyEnvVar, model.id) : modelEnvKey(model.apiConfig.apiKeyEnvVar, model.id);
   if (!key && (provider?.apiKeyEnvVar || !provider)) {
     throw new Error(
       `No API key configured for model "${modelId}" — connect provider or set ${provider?.apiKeyEnvVar ?? model.apiConfig.apiKeyEnvVar} in .env.local.`,
