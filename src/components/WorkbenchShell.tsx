@@ -17,6 +17,23 @@ export function WorkbenchShell({ children, projects, project, view, onProject, o
   const [touchOpen, setTouchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const switcherRef = useRef<HTMLDivElement>(null);
+  const keyboardNavigation = useRef(false);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Tab" || event.key.startsWith("Arrow")) keyboardNavigation.current = true;
+    };
+    const onPointerDown = () => {
+      keyboardNavigation.current = false;
+      setFocused(false);
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown, true);
+      document.removeEventListener("pointerdown", onPointerDown, true);
+    };
+  }, []);
 
   useEffect(() => {
     if (!switcherOpen && !sidebarOpen) return;
@@ -60,7 +77,7 @@ export function WorkbenchShell({ children, projects, project, view, onProject, o
       </div>
     </header>
     <div className="flex min-h-[calc(100dvh-3.5rem)] items-stretch">
-      <aside onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)} onFocusCapture={() => setFocused(true)} onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false); }} className="sticky top-14 z-30 hidden h-[calc(100dvh-3.5rem)] w-[60px] shrink-0 md:block"><div className={`h-full overflow-y-auto border-r border-nav-line bg-nav transition-[width,box-shadow] duration-200 ${expanded ? "w-[224px] shadow-elevated" : "w-[60px]"}`}><WorkbenchSidebar project={project} view={view} collapsed={!expanded} onNavigate={navigate} /></div></aside>
+      <aside onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)} onFocusCapture={() => { if (keyboardNavigation.current) setFocused(true); }} onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false); }} className="sticky top-14 z-30 hidden h-[calc(100dvh-3.5rem)] w-[60px] shrink-0 md:block"><div className={`h-full overflow-y-auto border-r border-nav-line bg-nav transition-[width,box-shadow] duration-[320ms] ease-in-out ${expanded ? "w-[224px] shadow-elevated" : "w-[60px]"}`}><WorkbenchSidebar project={project} view={view} collapsed={!expanded} onNavigate={navigate} /></div></aside>
       <main key={`${project?.id ?? "all"}:${view}`} className="view-enter min-w-0 flex-1">{children}</main>
     </div>
     {sidebarOpen && <div className="fixed inset-x-0 bottom-0 top-14 z-40 md:hidden"><button aria-label="Close navigation" className="absolute inset-0 bg-ink/45" onClick={() => setSidebarOpen(false)} /><aside className="drawer-enter relative h-full w-[min(280px,calc(100vw-2.5rem))] overflow-y-auto border-r border-nav-line bg-nav shadow-elevated"><WorkbenchSidebar project={project} view={view} collapsed={false} onNavigate={navigate} /></aside></div>}
